@@ -254,7 +254,20 @@
 
 **返回 data**：`is_favorited`、`favorite_count`
 
-### 3.8 评论点赞 / 取消（切换，业务）
+### 3.8 我的收藏列表（业务）
+
+- **路径**：`GET /api/post/favorites`
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：返回当前用户收藏的帖子，按收藏时间倒序，只取正常状态帖子。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| page | int | 否 | 页码，默认 1 |
+| page_size | int | 否 | 每页条数，默认 10，最大 50 |
+
+**返回 data**：`list[]`（字段同广场列表：`id, user_id, nickname, avatar, content, images[], comment_count, like_count, is_liked, is_favorited(恒为 true), favorite_count, create_time, create_time_text, location`）、`page`
+
+### 3.9 评论点赞 / 取消（切换，业务）
 
 - **路径**：`POST /api/post/commentLike`
 - **鉴权**：业务（签名 + 设备密钥）
@@ -266,7 +279,7 @@
 
 **返回 data**：`is_liked`、`like_count`
 
-### 3.9 删除帖子（业务）
+### 3.10 删除帖子（业务）
 
 - **路径**：`POST /api/post/deletePost`
 - **鉴权**：业务（签名 + 设备密钥）
@@ -276,7 +289,7 @@
 |------|------|------|------|
 | post_id | int | 是 | 帖子 ID |
 
-### 3.10 删除评论 / 楼中楼（业务）
+### 3.11 删除评论 / 楼中楼（业务）
 
 - **路径**：`POST /api/post/deleteComment`
 - **鉴权**：业务（签名 + 设备密钥）
@@ -425,6 +438,7 @@
 | 举报 | `/api/post/report` | POST | 业务 |
 | 帖子点赞 | `/api/post/like` | POST | 业务 |
 | 帖子收藏 | `/api/post/favorite` | POST | 业务 |
+| 我的收藏列表 | `/api/post/favorites` | GET | 业务 |
 | 评论点赞 | `/api/post/commentLike` | POST | 业务 |
 | 删除帖子 | `/api/post/deletePost` | POST | 业务 |
 | 删除评论 | `/api/post/deleteComment` | POST | 业务 |

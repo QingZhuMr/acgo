@@ -867,6 +867,66 @@ class Post extends BaseController
     }
 
     /**
+     * 我的收藏列表（业务接口）
+     *
+     * 返回当前用户收藏的帖子，按收藏时间倒序，只取正常状态帖子。
+     * 参数：page / page_size
+     * 返回：list（字段同广场列表，含 is_favorited=true）、page
+     */
+    public function favorites()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $page     = max(1, (int) $this->request->param('page', 1));
+        $pageSize = min(50, max(1, (int) $this->request->param('page_size', 10)));
+
+        // 收藏表 join 帖子表：按收藏时间倒序，只取正常状态帖子
+        $list = Db::name('post_favorite')
+            ->alias('f')
+            ->join('post p', 'p.id = f.post_id')
+            ->where('f.user_id', $uid)
+            ->where('p.status', 1)
+            ->field('p.id,p.user_id,p.content,p.images,p.comment_count,p.create_time,p.location,p.favorite_count')
+            ->order('f.create_time', 'desc')
+            ->page($page, $pageSize)
+            ->select()
+            ->toArray();
+
+        // 批量统计点赞数（post_like 表），避免 N+1
+        $likeMap = self::likeCountMap(array_column($list, 'id'));
+        // 批量查询发帖人昵称/头像（实时联表 user）
+        $userMap = self::userInfoMap(array_column($list, 'user_id'));
+        // 当前用户已点赞的帖子 ID 集合，用于前端渲染空心/实心爱心
+        $likedIds = self::likedPostIds($uid, array_column($list, 'id'));
+
+        foreach ($list as &$item) {
+            $u                     = $userMap[$item['user_id']] ?? null;
+            $item['id']            = (int) $item['id'];
+            $item['user_id']       = (int) $item['user_id'];
+            $item['comment_count'] = (int) $item['comment_count'];
+            $item['like_count']    = $likeMap[(int) $item['id']] ?? 0;
+            $item['is_liked']      = in_array((int) $item['id'], $likedIds, true);
+            $item['is_favorited']  = true; // 收藏列表里的必然是已收藏
+            $item['favorite_count'] = (int) ($item['favorite_count'] ?? 0);
+            $item['create_time']   = (int) $item['create_time'];
+            $item['create_time_text'] = $item['create_time'] ? date('Y-m-d H:i', $item['create_time']) : '';
+            $item['images']        = self::decodeImages($item['images'] ?? '');
+            $item['location']      = (string) ($item['location'] ?? '');
+            $item['nickname']      = $u['nickname'] ?? '';
+            $item['avatar']        = ($u['avatar'] ?? '') ?: '/static/admin/img/default-avatar.png';
+            // 列表仅截取正文预览，避免传输过大
+            $item['content']       = mb_substr((string) $item['content'], 0, 80);
+        }
+        unset($item);
+
+        return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $list, 'page' => $page]]);
+    }
+
+    /**
      * 评论点赞 / 取消点赞（切换，业务接口）
      * POST：comment_id
      * 返回：is_liked、like_count

@@ -16,6 +16,7 @@ CREATE TABLE `post` (
   `images`        TEXT         COMMENT '图片列表 JSON 数组（相对路径，最多9张）',
   `heat`          INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '热度值：回帖+1，后台可手动增加，影响随机推荐权重',
   `comment_count` INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '评论总数（冗余，性能）',
+  `like_count`    INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '点赞数（冗余，性能）',
   `favorite_count` INT         NOT NULL DEFAULT 0  COMMENT '收藏数',
   `report_count`  INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '被举报次数',
   `status`        TINYINT      NOT NULL DEFAULT 1  COMMENT '状态：0已删除 1正常 2待审核',
