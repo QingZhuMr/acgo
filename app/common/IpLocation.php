@@ -92,12 +92,13 @@ class IpLocation
         ksort($params, SORT_STRING); // 参数名升序，签名与最终 URL 顺序保持一致
         $query  = http_build_query($params);
 
-        // 配置了 SK 则启用签名校验（SN 校验）：
-        // sn = MD5(urlencode(路径 + "?" + 未 URL 编码的原始参数串 + SK))，32 位小写
+        // 配置了 SK 则启用签名校验（新版 sig 签名）：
+        // 2024 年起腾讯已弃用 sn 参数，改用 sig：
+        // sig = MD5(path + "?" + URL 编码后的参数串 + SK)，32 位小写，不再整体 urlencode
         $sk = self::config('qqmap_sk');
         if ('' !== $sk) {
-            $sn    = md5(urlencode($path . '?' . urldecode($query) . $sk));
-            $query .= '&sn=' . $sn;
+            $sig   = md5($path . '?' . $query . $sk);
+            $query .= '&sig=' . $sig;
         }
 
         $url  = 'https://apis.map.qq.com' . $path . '?' . $query;
