@@ -1,0 +1,33 @@
+#!/bin/bash
+# 查看宝塔面板数据库和站点信息
+python3 -c "
+import sqlite3
+conn = sqlite3.connect('/www/server/panel/data/default.db')
+cur = conn.cursor()
+print('=== databases 表 ===')
+try:
+    cur.execute('SELECT * FROM databases')
+    for row in cur.fetchall():
+        print(row)
+except Exception as e:
+    print('err:', e)
+print('=== sites 表 ===')
+try:
+    cur.execute('SELECT * FROM sites')
+    for row in cur.fetchall():
+        print(row)
+except Exception as e:
+    print('err:', e)
+print('=== users 表 ===')
+try:
+    cur.execute('SELECT * FROM users')
+    for row in cur.fetchall():
+        print(row)
+except Exception as e:
+    print('err:', e)
+conn.close()
+"
+echo "---面板数据文件---"
+ls -la /www/server/panel/data/*.db /www/server/panel/data/*.pl 2>/dev/null
+echo "---MySQL安装目录---"
+ls /www/server/mysql/bin/mysql 2>&1

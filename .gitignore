@@ -1,0 +1,40 @@
+# ==================== ThinkPHP 默认 ====================
+*.log
+.env
+composer.phar
+composer.lock
+.DS_Store
+Thumbs.db
+/.idea
+/.vscode
+/vendor
+/.settings
+/.buildpath
+/.project
+
+# ==================== 敏感配置（含密钥，绝不能提交） ====================
+.env.production
+
+# ==================== 运行产物 ====================
+/runtime
+/user.ini
+/tmp
+/ws/stubs
+
+# ==================== 用户上传图片（勿入库） ====================
+/public/static/avatar
+/public/static/post
+/public/static/comment
+/public/static/sticker
+
+# ==================== WS 运行产物 ====================
+/ws/logs
+/ws/*.pid
+/ws/push.log
+/ws/swoole.log
+/ws/ws_stdout.log
+/ws/ws_stderr.log
+
+# ==================== 编辑器 / AI 工具 ====================
+/.hintrc
+/.codebuddy

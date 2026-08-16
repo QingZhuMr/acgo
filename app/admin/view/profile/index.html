@@ -1,0 +1,180 @@
+{extend name="layout" /}
+
+{block name="title"}个人资料{/block}
+
+{block name="style"}
+<style>
+    /* 卡片：纯白背景、无圆角/阴影/边框（符合全局规范） */
+    .profile-card {
+        background: var(--bg);
+        padding: 22px 24px;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        max-width: 720px;
+    }
+    .profile-card + .profile-card { margin-top: 16px; }
+    .profile-card .card-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 6px;
+    }
+    .profile-card .card-desc {
+        font-size: 13px;
+        color: var(--text-muted);
+        margin-bottom: 18px;
+    }
+
+    /* ===== 外观设置：三选一（白天/黑夜/跟随系统） ===== */
+    .theme-options {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .theme-option {
+        flex: 1;
+        min-width: 160px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+        cursor: pointer;
+        text-align: center;
+        background: var(--bg);
+        transition: all .2s ease;
+        position: relative;
+    }
+    .theme-option:hover { border-color: var(--primary); }
+    .theme-option.active {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px var(--primary-soft);
+    }
+    .theme-option .to-icon {
+        font-size: 26px;
+        color: var(--text-secondary);
+        margin-bottom: 10px;
+        display: block;
+    }
+    .theme-option.active .to-icon { color: var(--primary); }
+    .theme-option .to-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text);
+    }
+    .theme-option.active .to-name { color: var(--primary); }
+    .theme-option .to-check {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        font-size: 14px;
+        color: var(--primary);
+        display: none;
+    }
+    .theme-option.active .to-check { display: block; }
+
+    /* ===== 重置密码表单 ===== */
+    .pwd-form { max-width: 420px; }
+    .pwd-form .layui-form-item { margin-bottom: 18px; }
+    .pwd-form .layui-input { height: 40px; }
+    .pwd-form .pwd-submit {
+        margin-top: 6px;
+        padding: 0 28px;
+    }
+</style>
+{/block}
+
+{block name="content"}
+<!-- 外观设置（即时生效） -->
+<div class="profile-card">
+    <div class="card-title">外观设置</div>
+    <div class="card-desc">选择后台界面显示模式，设置立即生效。</div>
+    <div class="theme-options" id="themeOptions">
+        <div class="theme-option" data-mode="light">
+            <i class="fas fa-sun to-icon"></i>
+            <div class="to-name">白天模式</div>
+        </div>
+        <div class="theme-option" data-mode="dark">
+            <i class="fas fa-moon to-icon"></i>
+            <div class="to-name">黑夜模式</div>
+        </div>
+        <div class="theme-option" data-mode="system">
+            <i class="fas fa-desktop to-icon"></i>
+            <div class="to-name">跟随系统</div>
+        </div>
+    </div>
+</div>
+
+<!-- 重置密码 -->
+<div class="profile-card">
+    <div class="card-title">重置密码</div>
+    <div class="card-desc">修改当前管理员账号的登录密码。</div>
+    <form class="layui-form pwd-form" lay-filter="pwdForm">
+        <div class="layui-form-item">
+            <input type="password" name="old_password" placeholder="原密码" autocomplete="off"
+                   class="layui-input">
+        </div>
+        <div class="layui-form-item">
+            <input type="password" name="new_password" placeholder="新密码（至少 6 位）" autocomplete="off"
+                   class="layui-input">
+        </div>
+        <div class="layui-form-item">
+            <input type="password" name="confirm_password" placeholder="确认新密码" autocomplete="off"
+                   class="layui-input">
+        </div>
+        <div class="layui-form-item">
+            <button class="layui-btn page-btn pwd-submit" lay-submit lay-filter="changePwd">确认修改</button>
+        </div>
+    </form>
+</div>
+{/block}
+
+{block name="script"}
+<script>
+$(function () {
+    // ===== 1. 外观设置（即时生效，存 localStorage） =====
+    var $options = $('#themeOptions .theme-option');
+    var current = ACGOTheme.getPreference() || 'light';
+
+    function renderActive() {
+        $options.removeClass('active');
+        $options.filter('[data-mode="' + current + '"]').addClass('active');
+    }
+
+    $options.on('click', function () {
+        current = $(this).attr('data-mode');
+        ACGOTheme.setPreference(current); // 即时应用 + 写入 localStorage
+        renderActive();
+    });
+
+    renderActive();
+
+    // ===== 2. 重置密码 =====
+    layui.use(['form', 'layer'], function () {
+        var form = layui.form;
+        var layer = layui.layer;
+
+        form.on('submit(changePwd)', function (data) {
+            var f = data.field;
+            if (!f.old_password) return layer.msg('请输入原密码', { icon: 2 }), false;
+            if (!f.new_password || f.new_password.length < 6) return layer.msg('新密码至少 6 位', { icon: 2 }), false;
+            if (f.new_password !== f.confirm_password) return layer.msg('两次输入的新密码不一致', { icon: 2 }), false;
+
+            $.post('/profile/changePassword', f, function (res) {
+                if (res.code === 0) {
+                    layer.msg('密码修改成功', { icon: 1 }, function () {
+                        // 清空表单
+                        $('.pwd-form input').val('');
+                        location.reload();
+                    });
+                } else {
+                    layer.msg(res.msg || '修改失败', { icon: 2 });
+                }
+            }, 'json').fail(function () {
+                layer.msg('网络异常，请稍后重试', { icon: 2 });
+            });
+            return false;
+        });
+    });
+});
+</script>
+{/block}

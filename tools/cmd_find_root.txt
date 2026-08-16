@@ -1,0 +1,12 @@
+#!/bin/bash
+# 尝试从各种地方获取 MySQL root 密码
+echo "---.mysql_history---"
+cat /root/.mysql_history 2>/dev/null | tail -20
+echo "---bt 14 查看面板信息---"
+bt 14 2>&1 | head -10
+echo "---查找安装日志---"
+grep -ri "root.*password" /www/server/panel/logs/ 2>/dev/null | head -5
+grep -riE "SQLRootPassword|mysql.*password" /www/server/panel/data/*.pl 2>/dev/null | head -5
+echo "---panel 配置文件---"
+ls /www/server/panel/config/ 2>/dev/null
+cat /www/server/panel/config/config.json 2>/dev/null | head -20

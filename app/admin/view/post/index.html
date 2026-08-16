@@ -1,0 +1,372 @@
+{extend name="layout" /}
+
+{block name="title"}广场帖子{/block}
+
+{block name="style"}
+<style>
+    /* 预览弹框 */
+    .post-preview { padding: 20px 24px 24px; max-height: 80vh; overflow-y: auto; }
+    .post-preview .pp-head { display: flex; align-items: center; margin-bottom: 14px; }
+    .post-preview .pp-head img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; margin-right: 12px; flex-shrink: 0; }
+    .post-preview .pp-head .pp-name { font-size: 15px; font-weight: 600; color: var(--text); }
+    .post-preview .pp-head .pp-meta { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
+    .post-preview .pp-content { font-size: 14px; line-height: 1.7; color: var(--text-body); word-break: break-word; white-space: pre-wrap; }
+    .post-preview .pp-images { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .post-preview .pp-images img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 1px solid var(--border-light); }
+    .post-preview .pp-stats { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .post-preview .pp-stats .stat-tag { font-size: 12px; color: var(--text-body); background: var(--bg-hover); border-radius: 6px; padding: 3px 10px; }
+    .post-preview .pp-stats .stat-tag b { color: var(--text); margin-left: 3px; }
+    .post-preview .pp-comments { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+    .post-preview .pp-comments .pp-comment-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+    .post-preview .pp-comments .comment-item { display: flex; padding: 8px 0; border-bottom: 1px solid var(--border-light); }
+    .post-preview .pp-comments .comment-item:last-child { border-bottom: none; }
+    .post-preview .pp-comments .comment-item img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; margin-right: 10px; flex-shrink: 0; }
+    .post-preview .pp-comments .comment-item .c-body { flex: 1; overflow: hidden; }
+    .post-preview .pp-comments .comment-item .c-name { font-size: 13px; color: var(--text); font-weight: 500; }
+    .post-preview .pp-comments .comment-item .c-name .c-reply { color: var(--primary, #409EFF); margin: 0 2px; }
+    .post-preview .pp-comments .comment-item .c-text { font-size: 13px; color: var(--text-body); margin-top: 3px; word-break: break-word; }
+    .post-preview .pp-comments .comment-item .c-time { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+    .post-preview .pp-comments .comment-item.child { padding-left: 20px; }
+    .post-preview .pp-comments .comment-empty { text-align: center; color: var(--text-faint); font-size: 13px; padding: 20px 0; }
+    .comment-del { color: var(--danger); font-weight: 500; margin-left: 4px; }
+    /* 弹框内图片点击预览 */
+    .pp-img-layer { text-align: center; }
+    .pp-img-layer img { max-width: 100%; max-height: 80vh; border-radius: 6px; }
+    /* 表格热度数字强调 */
+    .layui-table .heat-num { color: var(--primary, #409EFF); font-weight: 600; }
+</style>
+{/block}
+
+{block name="content"}
+<div class="page-search">
+    <form class="layui-form" lay-filter="searchForm">
+        <div class="layui-inline">
+            <input type="text" name="keyword" placeholder="搜索内容/昵称" autocomplete="off" class="layui-input" style="width:220px;">
+        </div>
+        <div class="layui-inline">
+            <select name="status" title="状态筛选">
+                <option value="">全部状态</option>
+                <option value="1">正常</option>
+                <option value="2">待审核</option>
+                <option value="0">已删除</option>
+            </select>
+        </div>
+        <div class="layui-inline">
+            <button type="button" class="layui-btn search-btn" lay-submit lay-filter="search" title="搜索"><i class="fas fa-search"></i></button>
+        </div>
+    </form>
+</div>
+<div class="page-content">
+    <table id="postTable" lay-filter="postTable"></table>
+</div>
+
+<script type="text/html" id="barTpl">
+    <button type="button" class="layui-btn layui-btn-xs op-btn" lay-event="ops" data-id="{{ d.id }}"><i class="fas fa-wrench"></i></button>
+</script>
+{/block}
+
+{block name="script"}
+<script>
+layui.use(['table', 'form', 'layer'], function () {
+    var table = layui.table;
+    var form  = layui.form;
+    var layer = layui.layer;
+    var $     = layui.$;
+
+    form.render();
+
+    var sortParam = { field: 'id', order: 'desc' };
+    var searchWhere = {};
+    function mergeQuery() {
+        var q = {};
+        Object.keys(searchWhere).forEach(function (k) { q[k] = searchWhere[k]; });
+        q.field = sortParam.field;
+        q.order = sortParam.order;
+        return q;
+    }
+
+    var postTable = table.render({
+        elem: '#postTable',
+        url: '/post/getList',
+        method: 'get',
+        page: true,
+        limit: 20,
+        limits: [10, 20, 50, 100],
+        defaultToolbar: ['filter', 'print', 'exports'],
+        autoSort: false,
+        initSort: { field: 'id', type: 'desc' },
+        cols: [[
+            { field: 'id', title: 'ID', width: 70, align: 'center', sort: true },
+            { field: 'user_id', title: 'UID', width: 70, align: 'center' },
+            { field: 'nickname', title: '发帖人', minWidth: 120,
+              templet: function (d) {
+                  return '<div style="display:flex;align-items:center;">' +
+                      '<img src="' + d.avatar + '" style="width:28px;height:28px;border-radius:50%;object-fit:cover;margin-right:8px;">' +
+                      '<span>' + d.nickname + '</span></div>';
+              }
+            },
+            { field: 'content_preview', title: '内容', minWidth: 220 },
+            { field: 'image_count', title: '图片', width: 70, align: 'center',
+              templet: function (d) {
+                  return d.image_count > 0 ? '<span class="badge badge-blue">' + d.image_count + '张</span>' : '-';
+              }
+            },
+            { field: 'heat', title: '热度', width: 90, align: 'center', sort: true,
+              templet: function (d) { return '<span class="heat-num">' + d.heat + '</span>'; }
+            },
+            { field: 'comment_count', title: '评论', width: 80, align: 'center', sort: true },
+            { field: 'like_count', title: '点赞', width: 80, align: 'center' },
+            { field: 'report_count', title: '举报', width: 80, align: 'center', sort: true,
+              templet: function (d) {
+                  return d.report_count > 0 ? '<span class="badge badge-red">' + d.report_count + '</span>' : '0';
+              }
+            },
+            { field: 'status', title: '状态', width: 90, align: 'center',
+              templet: function (d) { return '<span class="badge ' + d.status_badge + '">' + d.status_text + '</span>'; }
+            },
+            { field: 'create_time_text', title: '发布时间', minWidth: 160 },
+            { title: '操作', width: 90, toolbar: '#barTpl', fixed: 'right', align: 'center' }
+        ]]
+    });
+
+    // 搜索
+    form.on('submit(search)', function (data) {
+        searchWhere = data.field || {};
+        postTable.reload({ where: mergeQuery(), page: { curr: 1 } });
+        return false;
+    });
+
+    // 表头排序
+    table.on('sort(postTable)', function (obj) {
+        sortParam.field = obj.field || 'id';
+        sortParam.order = obj.type || 'desc';
+        postTable.reload({ initSort: obj, where: mergeQuery(), page: { curr: 1 } });
+    });
+
+    // 导出（纯文本）
+    table.on('toolbar(postTable)', function (obj) {
+        if (obj.event === 'LAY_TABLE_EXPORT' || obj.event === 'exports') {
+            var exportData = [];
+            table.getData('postTable', true).forEach(function (r) {
+                exportData.push({
+                    'ID': r.id,
+                    'UID': r.user_id,
+                    '发帖人': r.nickname,
+                    '内容': r.content_preview,
+                    '图片数': r.image_count,
+                    '热度': r.heat,
+                    '评论数': r.comment_count,
+                    '点赞数': r.like_count,
+                    '举报数': r.report_count,
+                    '状态': r.status_text,
+                    '发布时间': r.create_time_text
+                });
+            });
+            table.exportFile('postTable', exportData, 'xlsx');
+            return false;
+        }
+    });
+
+    // 行工具事件：点击省略按钮 → 用 Layui 原生 layer 弹窗展示操作菜单
+    table.on('tool(postTable)', function (obj) {
+        var data = obj.data;
+        if (obj.event === 'ops') {
+            var btns = '';
+            btns += '<button type="button" class="op-act-btn" data-ev="view"><i class="fas fa-eye"></i> 预览</button>';
+            btns += '<button type="button" class="op-act-btn" data-ev="heat"><i class="fas fa-fire"></i> 加热</button>';
+            btns += '<button type="button" class="op-act-btn danger" data-ev="del"><i class="fas fa-trash"></i> 删除</button>';
+            var html = '<div class="op-layer-target"><i class="fas fa-file-alt"></i> 操作对象：<b>帖子 #' + data.id + '</b></div>' +
+                       '<div class="op-layer-body">' + btns + '</div>';
+            var opsLayer = layer.open({
+                type: 1,
+                title: '操作',
+                area: ['280px', 'auto'],
+                content: html,
+                closeBtn: 1,
+                shade: 0.3,
+                shadeClose: true
+            });
+            // 操作按钮点击（事件委托到弹窗内容）
+            $('.op-layer-body button').off('click').on('click', function () {
+                var ev = $(this).attr('data-ev');
+                layer.close(opsLayer);
+                if (ev === 'view') openPreview(data.id);
+                else if (ev === 'heat') openHeat(data.id, data.heat);
+                else if (ev === 'del') openDelete(data.id);
+            });
+        }
+    });
+
+    // ===== 预览帖子（含评论） =====
+    function openPreview(postId) {
+        var idx = layer.load(1);
+        $.get('/post/detail', { post_id: postId }, function (res) {
+            layer.close(idx);
+            if (res.code !== 0) { layer.msg(res.msg, { icon: 2 }); return; }
+            var post = res.data.post;
+            var comments = res.data.comments;
+
+            // 图片
+            var imgsHtml = '';
+            if (post.images && post.images.length > 0) {
+                imgsHtml += '<div class="pp-images">';
+                post.images.forEach(function (src) {
+                    imgsHtml += '<img src="' + src + '" data-src="' + src + '">';
+                });
+                imgsHtml += '</div>';
+            }
+
+            // 评论（顶层 + 子评论）
+            var commentHtml = '';
+            if (comments.length === 0) {
+                commentHtml = '<div class="comment-empty">暂无评论</div>';
+            } else {
+                comments.forEach(function (c) {
+                    commentHtml += '<div class="comment-item">' +
+                        '<img src="' + c.avatar + '">' +
+                        '<div class="c-body">' +
+                            '<div class="c-name">' + c.nickname +
+                                (c.status_text !== '正常' ? '<span class="comment-del">[' + c.status_text + ']</span>' : '') +
+                            '</div>' +
+                            '<div class="c-text">' + (c.content_html || c.content) + '</div>' +
+                            '<div class="c-time">' + c.create_time_text + '</div>' +
+                        '</div></div>';
+                    (c.children || []).forEach(function (cc) {
+                        commentHtml += '<div class="comment-item child">' +
+                            '<img src="' + cc.avatar + '">' +
+                            '<div class="c-body">' +
+                                '<div class="c-name">' + cc.nickname +
+                                    '<span class="c-reply">回复 ' + cc.reply_to_name + '</span>' +
+                                    (cc.status_text !== '正常' ? '<span class="comment-del">[' + cc.status_text + ']</span>' : '') +
+                                '</div>' +
+                                '<div class="c-text">' + (cc.content_html || cc.content) + '</div>' +
+                                '<div class="c-time">' + cc.create_time_text + '</div>' +
+                            '</div></div>';
+                    });
+                });
+            }
+
+            var html = '<div class="post-preview">' +
+                '<div class="pp-head">' +
+                    '<img src="' + post.avatar + '">' +
+                    '<div>' +
+                        '<div class="pp-name">' + post.nickname + ' <span style="font-size:12px;color:var(--text-faint);font-weight:400;">UID:' + post.user_id + '</span></div>' +
+                        '<div class="pp-meta">' + post.create_time_text + '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="pp-content">' + (post.content_html || post.content) + '</div>' +
+                imgsHtml +
+                '<div class="pp-stats">' +
+                    '<span class="stat-tag">热度<b>' + post.heat + '</b></span>' +
+                    '<span class="stat-tag">评论<b>' + post.comment_count + '</b></span>' +
+                    '<span class="stat-tag">点赞<b>' + post.like_count + '</b></span>' +
+                    '<span class="stat-tag">举报<b>' + post.report_count + '</b></span>' +
+                    '<span class="stat-tag">状态<b>' + post.status_text + '</b></span>' +
+                '</div>' +
+                '<div class="pp-comments">' +
+                    '<div class="pp-comment-title">评论（共 ' + comments.length + ' 条顶层）</div>' +
+                    commentHtml +
+                '</div>' +
+            '</div>';
+
+            layer.open({
+                type: 1,
+                title: '帖子预览 #' + post.id,
+                area: ['760px', 'auto'],
+                content: html,
+                closeBtn: 1,
+                shade: 0.4,
+                shadeClose: true,
+                success: function (layero) {
+                    // 点击图片放大
+                    layero.find('.pp-images img').on('click', function () {
+                        var src = $(this).attr('data-src');
+                        layer.open({
+                            type: 1,
+                            title: false,
+                            area: 'auto',
+                            shadeClose: true,
+                            shade: 0.8,
+                            content: '<div class="pp-img-layer"><img src="' + src + '"></div>'
+                        });
+                    });
+                }
+            });
+        }, 'json');
+    }
+
+    // ===== 增加热度 =====
+    function openHeat(postId, curHeat) {
+        layer.open({
+            type: 1,
+            title: '增加热度',
+            area: ['440px', 'auto'],
+            shade: 0.4,
+            shadeClose: false,
+            content: '<div style="padding:24px;">' +
+                '<div style="font-size:13px;color:var(--text-faint);margin-bottom:10px;">当前热度：<b style="color:var(--primary);">' + curHeat + '</b>，热度越高在广场随机推荐中出现概率越高。</div>' +
+                '<input type="number" id="heatVal" min="1" max="100000" placeholder="请输入要增加的热度值" class="layui-input">' +
+                '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">' +
+                    '<button type="button" class="layui-btn layui-btn-primary" id="heatCancel">取消</button>' +
+                    '<button type="button" class="layui-btn" id="heatSubmit">确认增加</button>' +
+                '</div>' +
+            '</div>',
+            success: function (layero) {
+                layero.find('#heatCancel').on('click', function () { layer.closeAll(); });
+                layero.find('#heatSubmit').on('click', function () {
+                    var val = layero.find('#heatVal').val();
+                    if (val === '' || isNaN(val) || parseInt(val, 10) <= 0) {
+                        layer.msg('请输入正整数热度值', { icon: 2 }); return;
+                    }
+                    $.post('/post/addHeat', { post_id: postId, heat: parseInt(val, 10) }, function (res) {
+                        if (res.code === 0) {
+                            layer.closeAll();
+                            layer.msg(res.msg, { icon: 1 });
+                            postTable.reload();
+                        } else {
+                            layer.msg(res.msg, { icon: 2 });
+                        }
+                    }, 'json');
+                });
+            }
+        });
+    }
+
+    // ===== 删除帖子（密码二次验证） =====
+    function openDelete(postId) {
+        layer.open({
+            type: 1,
+            title: '删除帖子',
+            area: ['440px', 'auto'],
+            shade: 0.4,
+            shadeClose: false,
+            content: '<div style="padding:24px;">' +
+                '<div style="font-size:14px;color:var(--danger);margin-bottom:16px;">删除后帖子将在广场中隐藏（软删除），此操作不可撤销，请谨慎。</div>' +
+                '<div style="font-size:13px;color:var(--text-body);margin-bottom:8px;">请输入管理员密码确认操作：</div>' +
+                '<input type="password" id="delPwd" placeholder="管理员密码" class="layui-input">' +
+                '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">' +
+                    '<button type="button" class="layui-btn layui-btn-primary" id="delCancel">取消</button>' +
+                    '<button type="button" class="layui-btn layui-btn-danger" id="delSubmit">确认删除</button>' +
+                '</div>' +
+            '</div>',
+            success: function (layero) {
+                layero.find('#delCancel').on('click', function () { layer.closeAll(); });
+                layero.find('#delSubmit').on('click', function () {
+                    var pwd = layero.find('#delPwd').val();
+                    if (pwd === '') { layer.msg('请输入管理员密码', { icon: 2 }); return; }
+                    $.post('/post/delete', { post_id: postId, admin_password: pwd }, function (res) {
+                        if (res.code === 0) {
+                            layer.closeAll();
+                            layer.msg(res.msg, { icon: 1 });
+                            postTable.reload();
+                        } else {
+                            layer.msg(res.msg, { icon: 2 });
+                        }
+                    }, 'json');
+                });
+            }
+        });
+    }
+});
+</script>
+{/block}

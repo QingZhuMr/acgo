@@ -1,0 +1,291 @@
+{extend name="layout" /}
+
+{block name="title"}系统设置{/block}
+
+{block name="style"}
+<style>
+    .setting-content { max-width: 720px; }
+    .setting-tip { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+
+    /* 自定义敏感词：输入 + 添加按钮 */
+    .word-add {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+        max-width: 420px;
+    }
+    .word-add .layui-input { flex: 1; }
+
+    /* 自定义敏感词标签列表 */
+    .word-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-height: 26px;
+        margin-bottom: 10px;
+    }
+    .word-list .empty {
+        color: var(--text-faint);
+        font-size: 12px;
+        align-self: center;
+    }
+    .word-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 6px 4px 12px;
+        border-radius: 999px;
+        background: var(--bg-soft);
+        border: 1px solid var(--border-light);
+        color: var(--text-body);
+        font-size: 12px;
+        line-height: 1.4;
+    }
+    .word-tag .del {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        color: var(--text-faint);
+        cursor: pointer;
+        font-size: 12px;
+        transition: all .2s ease;
+    }
+    .word-tag .del:hover { color: var(--danger); background: rgba(255,59,48,0.12); }
+
+    /* 网络词库：信息在左，更新按钮在右 */
+    .lexicon-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .lexicon-meta { flex: 1; color: var(--text-muted); font-size: 12px; }
+</style>
+{/block}
+
+{block name="content"}
+<div class="page-content setting-content">
+    <form class="layui-form" lay-filter="settingForm">
+        <div class="layui-form-item">
+            <label class="layui-form-label">应用名称</label>
+            <div class="layui-input-block">
+                <input type="text" id="cfg_app_name" name="app_name" placeholder="请输入系统应用名称" autocomplete="off" class="layui-input">
+                <div class="setting-tip">用于显示在后台顶部及各页面标题。</div>
+            </div>
+        </div>
+
+        <div class="layui-form-item">
+            <label class="layui-form-label">IP 定位</label>
+            <div class="layui-input-block">
+                <input type="radio" name="ip_loc_provider" value="amap" title="高德" lay-skin="primary" checked>
+                <input type="radio" name="ip_loc_provider" value="qq" title="腾讯" lay-skin="primary">
+                <input type="radio" name="ip_loc_provider" value="baidu" title="百度" lay-skin="primary">
+                <div class="setting-tip">帖子/评论发布时解析 IP 归属地所用服务商，切换后仅对新发布的内容生效。申请入口：高德 console.amap.com / 腾讯 lbs.qq.com / 百度 lbsyun.baidu.com。</div>
+            </div>
+        </div>
+
+        <div class="layui-form-item">
+            <label class="layui-form-label">高德 Key</label>
+            <div class="layui-input-block">
+                <input type="text" id="cfg_amap_key" name="amap_key" placeholder="高德开放平台 Web 服务 Key（选高德时填写）" autocomplete="off" class="layui-input">
+                <div class="setting-tip">高德开放平台「Web服务」类型 Key，用于 IP 定位 API。</div>
+            </div>
+        </div>
+
+        <div class="layui-form-item">
+            <label class="layui-form-label">腾讯 Key</label>
+            <div class="layui-input-block">
+                <input type="text" id="cfg_qqmap_key" name="qqmap_key" placeholder="腾讯位置服务 Key（选腾讯时填写）" autocomplete="off" class="layui-input">
+                <div class="setting-tip">腾讯位置服务「WebService API」Key，用于 IP 定位；附带国家字段，国外 IP 可显示国家。</div>
+            </div>
+        </div>
+
+        <div class="layui-form-item">
+            <label class="layui-form-label">腾讯 SK</label>
+            <div class="layui-input-block">
+                <input type="text" id="cfg_qqmap_sk" name="qqmap_sk" placeholder="腾讯位置服务 SecretKey（开启 SN 校验时填写）" autocomplete="off" class="layui-input">
+                <div class="setting-tip">选腾讯且在控制台开启「SN 校验」时填写（本地环境无法配 IP 白名单，用签名方式）。留空则仅用 Key 请求。</div>
+            </div>
+        </div>
+
+        <div class="layui-form-item">
+            <label class="layui-form-label">百度 AK</label>
+            <div class="layui-input-block">
+                <input type="text" id="cfg_baidu_ak" name="baidu_ak" placeholder="百度地图 AK（选百度时填写）" autocomplete="off" class="layui-input">
+                <div class="setting-tip">百度地图开放平台「服务端」AK（ak 类型，勿选浏览器端），用于普通 IP 定位。</div>
+            </div>
+        </div>
+
+        <div class="layui-form-item">
+            <label class="layui-form-label">平台维护</label>
+            <div class="layui-input-block">
+                <input type="checkbox" name="maintenance_enabled" id="cfg_maint_enabled" lay-skin="switch" lay-text="维护中|正常" value="1">
+                <div class="setting-tip">开启后客户端将禁止登录，并展示下方维护公告（与更新推送同逻辑的常驻通知）。</div>
+                <textarea id="cfg_maint_notice" name="maintenance_notice" rows="3" maxlength="500" placeholder="请输入维护公告内容（客户端将展示此公告）" class="layui-textarea" style="margin-top:10px;max-width:520px;"></textarea>
+            </div>
+        </div>
+
+        <div class="layui-form-item">
+            <label class="layui-form-label">敏感词</label>
+            <div class="layui-input-block">
+                <div class="word-add">
+                    <input type="text" id="customWordInput" class="layui-input" placeholder="输入敏感词，回车或点击添加" maxlength="100">
+                    <button type="button" class="layui-btn" id="btnAddWord">添加</button>
+                </div>
+                <div class="word-list" id="customWordList"><span class="empty">暂无自定义敏感词</span></div>
+                <div class="setting-tip">平台自行维护的敏感词，独立于网络词库，始终参与内容审核。</div>
+            </div>
+        </div>
+
+        <div class="layui-form-item">
+            <label class="layui-form-label">敏感词库</label>
+            <div class="layui-input-block">
+                <div class="lexicon-row">
+                    <span class="lexicon-meta" id="lexiconMeta">加载中…</span>
+                    <button type="button" class="layui-btn" id="btnUpdateLexicon">更新词库</button>
+                </div>
+                <div class="setting-tip">从 GitHub 开源词库拉取，二次过滤后落盘，与自定义敏感词叠加生效。</div>
+            </div>
+        </div>
+
+        <div class="layui-form-item">
+            <div class="layui-input-block">
+                <button class="layui-btn" lay-submit lay-filter="saveSetting">保存设置</button>
+            </div>
+        </div>
+    </form>
+</div>
+{/block}
+
+{block name="script"}
+<script>
+layui.use(['form', 'layer'], function () {
+    var form = layui.form;
+    var layer = layui.layer;
+
+    // 加载当前配置
+    $.get('/system/getConfig', function (res) {
+        if (res.code === 0) {
+            $('#cfg_app_name').val(res.data.app_name);
+            $('#cfg_amap_key').val(res.data.amap_key || '');
+            $('#cfg_qqmap_key').val(res.data.qqmap_key || '');
+            $('#cfg_qqmap_sk').val(res.data.qqmap_sk || '');
+            $('#cfg_baidu_ak').val(res.data.baidu_ak || '');
+            // IP 定位服务商回填
+            var provider = res.data.ip_loc_provider || 'amap';
+            $('input[name="ip_loc_provider"]').prop('checked', false);
+            $('input[name="ip_loc_provider"][value="' + provider + '"]').prop('checked', true);
+            $('#cfg_maint_notice').val(res.data.maintenance_notice || '');
+            // 维护开关回填
+            if (res.data.maintenance_enabled === '1') {
+                $('#cfg_maint_enabled').prop('checked', true);
+            } else {
+                $('#cfg_maint_enabled').prop('checked', false).removeAttr('checked');
+            }
+            form.render();
+            renderLexicon(res.data.lexicon);
+            renderCustomWords(res.data.custom_words);
+        }
+    });
+
+    // 渲染网络词库信息
+    function renderLexicon(info) {
+        if (!info) {
+            $('#lexiconMeta').text('暂无词库信息');
+            return;
+        }
+        if (!info.exists) {
+            $('#lexiconMeta').text('尚未更新网络词库');
+            return;
+        }
+        var d = new Date(info.updated_at * 1000);
+        $('#lexiconMeta').text('共 ' + info.count + ' 词 · 来源 ' + info.sources + ' 个分类 · 更新于 ' + d.toLocaleString());
+    }
+
+    // 渲染自定义敏感词标签
+    function renderCustomWords(list) {
+        var $box = $('#customWordList').empty();
+        if (!list || !list.length) {
+            $box.append('<span class="empty">暂无自定义敏感词</span>');
+            return;
+        }
+        list.forEach(function (item) {
+            var tag = $('<span class="word-tag"></span>')
+                .append($('<span>').text(item.word))
+                .append($('<i class="fas fa-xmark del" data-id="' + item.id + '"></i>'));
+            $box.append(tag);
+        });
+    }
+
+    // 添加自定义敏感词
+    function addWord() {
+        var word = $.trim($('#customWordInput').val());
+        if (!word) {
+            layer.msg('请输入敏感词', { icon: 2 });
+            return;
+        }
+        $.post('/system/addWord', { word: word }, function (res) {
+            if (res.code === 0) {
+                layer.msg(res.msg, { icon: 1 });
+                $('#customWordInput').val('');
+                renderCustomWords(res.data);
+            } else {
+                layer.msg(res.msg, { icon: 2 });
+            }
+        }, 'json');
+    }
+    $('#btnAddWord').on('click', addWord);
+    $('#customWordInput').on('keydown', function (e) {
+        if (e.keyCode === 13) { addWord(); }
+    });
+
+    // 删除自定义敏感词
+    $(document).on('click', '.word-tag .del', function () {
+        var id = $(this).data('id');
+        layer.confirm('确定删除该敏感词？', function (idx) {
+            layer.close(idx);
+            $.post('/system/delWord', { id: id }, function (res) {
+                if (res.code === 0) {
+                    layer.msg(res.msg, { icon: 1 });
+                    renderCustomWords(res.data);
+                } else {
+                    layer.msg(res.msg, { icon: 2 });
+                }
+            }, 'json');
+        });
+    });
+
+    // 更新网络词库
+    $('#btnUpdateLexicon').on('click', function () {
+        var btn = $(this);
+        btn.attr('disabled', true).text('正在更新，请稍候…');
+        $.post('/system/updateLexicon', function (res) {
+            btn.attr('disabled', false).text('更新词库');
+            if (res.code === 0) {
+                layer.msg(res.msg, { icon: 1 });
+                renderLexicon(res.data);
+            } else {
+                layer.msg(res.msg, { icon: 2 });
+            }
+        }, 'json').fail(function () {
+            btn.attr('disabled', false).text('更新词库');
+            layer.msg('更新失败，请稍后重试', { icon: 2 });
+        });
+    });
+
+    // 保存
+    form.on('submit(saveSetting)', function (data) {
+        $.post('/system/save', data.field, function (res) {
+            if (res.code === 0) {
+                layer.msg(res.msg, { icon: 1 });
+            } else {
+                layer.msg(res.msg, { icon: 2 });
+            }
+        }, 'json');
+        return false;
+    });
+});
+</script>
+{/block}

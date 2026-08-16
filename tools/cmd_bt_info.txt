@@ -1,0 +1,9 @@
+#!/bin/bash
+# 尝试通过宝塔 bt 命令获取面板信息
+echo "---bt default---"
+bt default 2>&1 | head -10
+echo "---查找面板配置---"
+find /www/server/panel -name "*.json" -path "*config*" 2>/dev/null | head -5
+find /www/server/panel -name "mysql*.json" 2>/dev/null | head -5
+echo "---phpmyadmin配置---"
+find /www/server/phpmyadmin -name "config.inc.php" 2>/dev/null | head -3

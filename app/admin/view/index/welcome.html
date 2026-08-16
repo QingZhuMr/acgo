@@ -1,0 +1,223 @@
+{extend name="layout" /}
+
+{block name="title"}控制台{/block}
+
+{block name="style"}
+<style>
+    /* 控制台卡片：背景跟随主题（无阴影、无圆角、无边框） */
+    .panel { background: var(--bg); padding: 20px; border: none; border-radius: 0; box-shadow: none; color: var(--text-body); }
+    .panel + .panel { margin-top: 16px; }
+
+    /* ===== 充值总额统计 ===== */
+    .stat-card { display: flex; flex-direction: column; gap: 10px; }
+    .stat-card .stat-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .stat-card .stat-amount {
+        font-size: 32px; font-weight: 700; color: var(--text);
+        font-variant-numeric: tabular-nums;
+    }
+    .stat-card .stat-count { font-size: 13px; color: var(--text-muted); }
+    .stat-card .stat-meta { font-size: 13px; color: var(--text-muted); }
+    .stat-card .stat-currencies-head {
+        margin-top: 14px; font-size: 13px; color: var(--text-muted); font-weight: 500;
+    }
+    .stat-card .stat-currencies {
+        display: flex; flex-wrap: wrap; gap: 12px; margin-top: 0; padding-top: 2px;
+    }
+    .stat-card .cur-item {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 12px;
+        background: var(--bg-hover);
+        border-radius: 8px;
+        font-size: 13px; color: var(--text-body);
+        font-variant-numeric: tabular-nums;
+    }
+    .stat-card .cur-item b { color: var(--text); font-weight: 600; }
+
+    /* ===== 用户注册走势图 ===== */
+    .trend-card .trend-head {
+        display: flex; justify-content: space-between; align-items: center;
+        flex-wrap: wrap; gap: 12px; margin-bottom: 8px;
+    }
+    .trend-card .trend-title { font-size: 16px; font-weight: 600; color: var(--text); }
+    .trend-card .trend-tools {
+        display: flex; align-items: center; gap: 10px; font-size: 13px;
+    }
+    .trend-card .trend-tools .seg-group {
+        display: inline-flex;
+        border: 1px solid var(--border);
+        border-radius: 8px; overflow: hidden;
+    }
+    .trend-card .trend-tools .seg-group button {
+        background: var(--bg);
+        border: none; padding: 6px 14px;
+        font-size: 13px; color: var(--text-body);
+        cursor: pointer; transition: all .15s ease;
+    }
+    .trend-card .trend-tools .seg-group button + button { border-left: 1px solid var(--border); }
+    .trend-card .trend-tools .seg-group button.active {
+        background: var(--primary); color: #fff;
+    }
+    .trend-card .trend-tools select {
+        height: 32px; line-height: 32px; padding: 0 10px;
+        border: 1px solid var(--border); border-radius: 8px;
+        font-size: 13px; color: var(--text-body);
+        background: var(--bg); cursor: pointer; outline: none;
+    }
+    .trend-card .trend-chart { width: 100%; height: 360px; }
+</style>
+{/block}
+
+{block name="content"}
+<!-- 充值总额统计 -->
+<div class="panel stat-card">
+    <div class="stat-head">
+        <span id="statAmount" class="stat-amount">--</span>
+        <span class="stat-meta">当前充值总额（已完成订单）</span>
+    </div>
+    <div id="statCount" class="stat-count">--</div>
+    <div class="stat-currencies-head">所有币种充值信息</div>
+    <div id="statCurrencies" class="stat-currencies"></div>
+</div>
+
+<!-- 用户注册数量走势图 -->
+<div class="panel trend-card">
+    <div class="trend-head">
+        <div class="trend-title">用户注册数量走势</div>
+        <div class="trend-tools">
+            <div class="seg-group" id="trendRange">
+                <button data-days="7">7天</button>
+                <button data-days="12" class="active">12天</button>
+                <button data-days="30">30天</button>
+            </div>
+            <select id="trendInterval">
+                <option value="daily">日</option>
+                <option value="weekly">周</option>
+            </select>
+        </div>
+    </div>
+    <div id="trendChart" class="trend-chart"></div>
+</div>
+
+<script src="/static/common/lib/echarts/echarts.min.js"></script>
+{/block}
+
+{block name="script"}
+<script>
+$(function () {
+    // ===== 1. 充值总额统计 =====
+    $.get('/index/rechargeStat', function (res) {
+        if (res.code !== 0) return;
+        var byCur = res.by_currency || [];
+        var grand = res.grand_count || 0;
+
+        if (byCur.length > 0) {
+            var main = null;
+            for (var i = 0; i < byCur.length; i++) {
+                if (byCur[i].currency === 'cny') { main = byCur[i]; break; }
+            }
+            if (!main) main = byCur[0];
+            $('#statAmount').text(main.symbol + ' ' + main.total);
+            $('#statCount').text('已完成订单 ' + grand + ' 笔');
+        } else {
+            $('#statAmount').text('¥ 0.00');
+            $('#statCount').text('已完成订单 0 笔');
+        }
+
+        var $wrap = $('#statCurrencies').empty();
+        byCur.forEach(function (c) {
+            $wrap.append(
+                '<span class="cur-item">' + c.currency_name + '<b>' + c.symbol + ' ' + c.total + '</b> · ' + c.count + ' 笔</span>'
+            );
+        });
+    }, 'json');
+
+    // ===== 2. 用户注册数量走势（ECharts 柱状图，主题感知） =====
+    var trendChart = echarts.init(document.getElementById('trendChart'));
+    var lastLabels = [], lastData = [], lastDays = 12;
+
+    function cssVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    function loadTrend(days) {
+        lastDays = days;
+        $.get('/index/userRegTrend', { days: days }, function (res) {
+            if (res.code !== 0) return;
+            lastLabels = res.labels; lastData = res.data;
+            renderTrend();
+        }, 'json');
+    }
+
+    function renderTrend() {
+        var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        var axisColor  = isDark ? 'rgba(255,255,255,0.18)' : '#e5e7eb';
+        var labelColor = isDark ? '#98989d' : '#6b7280';
+        var splitColor = isDark ? 'rgba(255,255,255,0.08)' : '#f3f4f6';
+        trendChart.setOption({
+            grid: { left: 50, right: 20, top: 30, bottom: 40 },
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'shadow' },
+                backgroundColor: isDark ? '#2c2c2e' : '#fff',
+                borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)',
+                textStyle: { color: isDark ? '#f5f5f7' : '#111827' },
+                formatter: function (p) {
+                    return p[0].axisValue + '<br/>注册人数：<b>' + p[0].value + '</b>';
+                }
+            },
+            xAxis: {
+                type: 'category', data: lastLabels,
+                axisLine: { lineStyle: { color: axisColor } },
+                axisLabel: { color: labelColor, fontSize: 12 },
+                axisTick: { show: false }
+            },
+            yAxis: {
+                type: 'value', minInterval: 1,
+                splitLine: { lineStyle: { color: splitColor } },
+                axisLabel: { color: labelColor, fontSize: 12 }
+            },
+            series: [{
+                type: 'bar', data: lastData, barMaxWidth: 36,
+                itemStyle: { color: '#0A84FF', borderRadius: [4, 4, 0, 0] },
+                emphasis: { itemStyle: { color: '#0071e3' } }
+            }]
+        });
+    }
+
+    // 主题切换后重渲染（无新数据，直接使用上次缓存）
+    $(document).on('themeChanged', function () { renderTrend(); });
+
+    // 工具栏交互
+    $('#trendRange button').on('click', function () {
+        var days = parseInt($(this).attr('data-days'), 10);
+        $('#trendRange button').removeClass('active');
+        $(this).addClass('active');
+        loadTrend(days);
+    });
+
+    // 周/日切换
+    $('#trendInterval').on('change', function () {
+        var interval = $(this).val();
+        if (interval === 'weekly') {
+            $.get('/index/userRegTrend', { days: 56 }, function (res) {
+                if (res.code !== 0) return;
+                var labels = [], data = [];
+                for (var i = 0; i < res.labels.length; i += 7) {
+                    var sum = 0; var start = res.labels[i];
+                    for (var j = 0; j < 7 && (i + j) < res.data.length; j++) sum += res.data[i + j];
+                    labels.push(start + ' 起周');
+                    data.push(sum);
+                }
+                lastLabels = labels; lastData = data; lastDays = 56;
+                renderTrend();
+            }, 'json');
+        } else {
+            loadTrend(parseInt($('#trendRange button.active').attr('data-days'), 10));
+        }
+    });
+
+    window.addEventListener('resize', function () { trendChart.resize(); });
+    loadTrend(12);
+});
+</script>
+{/block}

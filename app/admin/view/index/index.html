@@ -1,0 +1,763 @@
+{extend name="layout" /}
+
+{block name="title"}{$app_name} - 管理面板{/block}
+
+{block name="style"}
+<style>
+    /* ===== 后台主框架（PC 端正式风格，参考设计图） ===== */
+    body { padding: 0; }
+    /* PC 端：隐藏顶部栏（logo + 欢迎信息均不显示） */
+    .layui-layout-admin .layui-header {
+        display: none;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 56px;
+        height: 56px;
+        border-bottom: 1px solid var(--border-strong);
+    }
+    /* 顶部 logo */
+    .layui-layout-admin .layui-header .logo {
+        width: 220px;
+        float: left;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--text);
+        overflow: hidden;
+        white-space: nowrap;
+        border-right: 1px solid var(--border-strong);
+    }
+    .layui-layout-admin .layui-header .logo .logo-img {
+        width: 30px;
+        height: 30px;
+        border-radius: 6px;
+        object-fit: cover;
+    }
+
+    /* ===== PC 端侧边栏（白色极简，参考设计图） ===== */
+    .layui-layout-admin .layui-side {
+        top: 0;
+        width: 220px;
+        background: var(--bg-soft);
+        border-right: 1px solid var(--border-strong);
+        overflow-y: auto;
+    }
+    .layui-layout-admin .layui-side .layui-side-scroll {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+    /* 侧边栏顶部 logo 文字（仅 PC 显示） */
+    .side-logo {
+        padding: 18px 16px 14px;
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--text);
+        /* border-bottom: 1px solid var(--border-light); */
+        flex-shrink: 0;
+        text-align: center;
+    }
+    /* 侧边菜单 */
+    .side-menu {
+        margin: 0;
+        padding: 12px 10px;
+        list-style: none;
+        flex: 1;
+        overflow-y: auto;
+    }
+    /* 分组标题（顶级有子菜单的项，如"系统管理"、"日志管理"） */
+    .side-menu .nav-group-title {
+        padding: 16px 12px 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+    .side-menu .nav-group-title:first-child { padding-top: 4px; }
+    /* 菜单项 */
+    .side-menu .side-link {
+        display: flex;
+        align-items: center;
+        height: 40px;
+        padding: 0 12px;
+        color: var(--text);
+        font-size: 14px;
+        cursor: pointer;
+        text-decoration: none;
+        border-radius: 8px;
+        transition: all .15s ease;
+    }
+    .side-menu .side-link:hover {
+        color: var(--text);
+        background: var(--bg-muted);
+    }
+    .side-menu .side-item.active > .side-link,
+    .side-menu .side-sub li.active > .side-link {
+        color: var(--primary);
+        background: var(--primary-soft);
+        font-weight: 600;
+    }
+    .side-menu .side-icon {
+        width: 20px;
+        margin-right: 10px;
+        text-align: center;
+        font-size: 15px;
+        color: var(--text-muted);
+        flex-shrink: 0;
+    }
+    .side-menu .side-item.active > .side-link .side-icon,
+    .side-menu .side-sub li.active > .side-link .side-icon {
+        color: var(--primary);
+    }
+    .side-menu .side-text { flex: 1; }
+    /* 折叠箭头 */
+    .side-menu .side-arrow {
+        font-size: 12px;
+        color: var(--text-faint);
+        flex-shrink: 0;
+        transition: transform .2s ease;
+    }
+    .side-menu li.open > .side-link .side-arrow {
+        transform: rotate(90deg);
+    }
+    /* 子菜单：顶级分组下的二级平铺显示；更深的（三级+）折叠 */
+    .side-menu .side-sub {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: block;
+    }
+    /* 更深层级（三级及更深的 .side-sub）默认折叠 */
+    .side-menu .side-sub .side-sub {
+        padding-left: 8px;
+        display: none;
+    }
+    /* 任意层级有子菜单的项 .open 时展开其直接子菜单 */
+    .side-menu li.open > .side-sub { display: block; }
+    /* 二级菜单项：平铺、带图标、缩进 */
+    .side-menu .side-sub > li > .side-link {
+        height: 36px;
+        font-size: 14px;
+        padding-left: 12px;
+    }
+    .side-menu .side-sub .side-icon { font-size: 14px; }
+    .side-menu .side-sub .side-sub .side-link { height: 34px; }
+    /* 顶级无子菜单项（url 非空）：与二级菜单样式保持一致 */
+    .side-menu .side-item > .side-link {
+        height: 36px;
+        font-size: 14px;
+        padding-left: 12px;
+    }
+    .side-menu .side-item > .side-link .side-icon { font-size: 14px; }
+
+    /* 侧边栏底部退出按钮 */
+    .side-footer {
+        padding: 12px 10px;
+        border-top: 1px solid var(--border-light);
+    }
+    .side-footer .logout-link {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        color: var(--text-secondary);
+        font-size: 14px;
+        text-decoration: none;
+        transition: all .15s ease;
+    }
+    .side-footer .logout-link i { width: 20px; text-align: center; color: var(--text-muted); }
+    .side-footer .logout-link:hover {
+        color: var(--danger);
+        background: rgba(255,59,48,0.08);
+    }
+    .side-footer .logout-link:hover i { color: var(--danger); }
+
+    /* 侧边栏底部个人资料卡片（头像 + 昵称 + 更多） */
+    .side-footer .profile-link {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        margin-bottom: 6px;
+        border-radius: 8px;
+        color: var(--text-secondary);
+        font-size: 14px;
+        text-decoration: none;
+        transition: background .15s ease;
+        cursor: pointer;
+    }
+    .side-footer .profile-link:hover { background: var(--bg-muted); }
+    .side-footer .profile-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        color: var(--text-muted);
+        flex-shrink: 0;
+        background: var(--bg-hover);
+    }
+    .side-footer .profile-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 500;
+        color: var(--text);
+    }
+    .side-footer .profile-more {
+        font-size: 16px;
+        color: var(--text-faint);
+        flex-shrink: 0;
+    }
+    .side-footer .profile-link:hover .profile-more { color: var(--text-secondary); }
+
+    /* ===== 移动端折叠按钮（仅在移动端显示） ===== */
+    .layui-header .menu-toggle {
+        display: none;
+    }
+
+    /* ===== 内容区 ===== */
+    .layui-layout-admin .layui-body {
+        top: 0;
+        left: 220px;
+        bottom: 0;
+        padding: 0;
+        background: var(--bg);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        transition: left .3s ease;
+    }
+    /* 标签栏 */
+    .layui-body .tabs-bar {
+        height: 42px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border-strong);
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        flex-shrink: 0;
+    }
+    .tabs-bar .tabs-nav {
+        display: flex;
+        align-items: center;
+        overflow-x: auto;
+        flex: 1;
+        scrollbar-width: thin;
+    }
+    .tabs-bar .tabs-nav::-webkit-scrollbar { height: 4px; }
+    .tabs-bar .tabs-nav::-webkit-scrollbar-thumb { background: var(--bg-hover); border-radius: 4px; }
+    .tabs-bar .tab-item {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 12px;
+        height: 28px;
+        line-height: 28px;
+        background: var(--bg-hover);
+        border-radius: 6px;
+        margin-right: 8px;
+        cursor: pointer;
+        font-size: 13px;
+        color: var(--text-secondary);
+        transition: all .2s ease;
+        white-space: nowrap;
+    }
+    .tabs-bar .tab-item:hover { color: var(--text); }
+    .tabs-bar .tab-item.active {
+        color: var(--primary);
+        background: var(--primary-soft);
+        font-weight: 600;
+    }
+    .tabs-bar .tab-item .tab-dot { display: none; }
+    .tabs-bar .tab-item .tab-close {
+        margin-left: 8px;
+        width: 15px;
+        height: 15px;
+        line-height: 15px;
+        text-align: center;
+        border-radius: 50%;
+        font-size: 11px;
+        color: var(--text-faint);
+        transition: all .2s;
+    }
+    .tabs-bar .tab-item .tab-close:hover { color: var(--danger); background: rgba(255,59,48,0.1); }
+    .tabs-bar .tabs-tools {
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+        border-left: 1px solid var(--border-strong);
+        padding-left: 8px;
+        margin-left: 6px;
+    }
+    .tabs-bar .tabs-tools i {
+        cursor: pointer;
+        width: 28px;
+        height: 28px;
+        line-height: 28px;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 15px;
+        border-radius: 6px;
+        transition: all .2s;
+        margin-left: 4px;
+    }
+    .tabs-bar .tabs-tools i:hover { color: var(--primary); background: var(--primary-soft); }
+    /* iframe 容器 */
+    .layui-body .frame-wrap {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+    }
+    .layui-body .frame-wrap iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        display: block;
+        will-change: transform, opacity;
+    }
+    /* iframe 渐显（淡入，加载完成后触发） */
+    @keyframes frameFadeIn {
+        from { opacity: 0; }
+        to   { opacity: 1; }
+    }
+    .layui-body .frame-wrap iframe.slide-in {
+        animation: frameFadeIn .4s ease;
+    }
+    /* 页面加载指示（转圈） */
+    .frame-loading {
+        position: absolute;
+        inset: 0;
+        background: var(--bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 5;
+        transition: opacity .25s ease;
+    }
+    .frame-loading.hide {
+        opacity: 0;
+        pointer-events: none;
+    }
+    .frame-loading i { font-size: 30px; color: var(--primary); }
+
+    /* ===== 移动端响应式（≤768px 抽屉式侧边栏，不影响 PC） ===== */
+    @media (max-width: 768px) {
+        /* 移动端：恢复顶部栏显示（仅 logo 文字，隐藏图标） */
+        .layui-layout-admin .layui-header { display: block; }
+        .layui-header .menu-toggle {
+            display: block;
+            float: left;
+            width: 48px;
+            text-align: center;
+            cursor: pointer;
+            font-size: 18px;
+            color: var(--text);
+            height: 56px;
+            line-height: 56px;
+        }
+        .layui-layout-admin .layui-header .logo {
+            width: auto;
+            padding: 0 10px;
+            border-right: none;
+            font-size: 16px;
+            gap: 0;
+        }
+        .layui-layout-admin .layui-header .logo .logo-img { display: none; }
+        /* 移动端：侧边栏抽屉（顶部栏占位 56px） */
+        .layui-layout-admin .layui-side {
+            top: 56px;
+            left: 0;
+            z-index: 999;
+            box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+            transform: translateX(-100%);
+            transition: transform .3s ease;
+            will-change: transform;
+            backface-visibility: hidden;
+        }
+        .layui-layout-admin .layui-side.layui-side-show { transform: translateX(0); }
+        /* 移动端：侧边栏顶部 logo 隐藏（顶部栏已显示 logo 文字） */
+        .side-logo { display: none; }
+        /* 移动端：侧边栏展开时的遮罩（盖住头部与菜单栏之外区域） */
+        .side-mask {
+            display: none;
+            position: fixed;
+            top: 56px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 998; /* 低于侧边栏 999，高于内容区 */
+        }
+        .layui-side-show + .side-mask,
+        .side-mask.show { display: block; }
+        .layui-layout-admin .layui-body {
+            top: 56px;
+            left: 0 !important;
+        }
+        .tabs-bar .tab-item { padding: 0 10px; font-size: 12px; }
+    }
+</style>
+{/block}
+
+{block name="content"}
+<div class="layui-layout layui-layout-admin">
+    <!-- 顶部 -->
+    <div class="layui-header">
+        <span class="menu-toggle" id="menuToggle" title="展开菜单">
+            <i class="layui-icon layui-icon-spread-left"></i>
+        </span>
+        <div class="logo">{$app_name}</div>
+    </div>
+
+    <!-- 移动端遮罩（覆盖除头部和菜单栏外的区域，点击折叠菜单） -->
+    <div class="side-mask" id="sideMask"></div>
+
+    <!-- 侧边菜单（JS 递归渲染，PC 端正式风格） -->
+    <div class="layui-side">
+        <div class="layui-side-scroll">
+            <div class="side-logo">{$app_name}</div>
+            <ul class="side-menu" id="sideMenu"></ul>
+            <div class="side-footer">
+                <a href="javascript:;" class="profile-link" id="profileLink" title="个人资料">
+                    <!-- <i class="layui-icon layui-icon-username profile-avatar"></i> -->
+                    <span class="profile-name">{$nickname}</span>
+                    <i class="layui-icon layui-icon-more profile-more"></i>
+                </a>
+                <a href="javascript:;" onclick="logout()" class="logout-link">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>退出登录</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 内容区：标签栏 + iframe -->
+    <div class="layui-body">
+        <div class="tabs-bar">
+            <div class="tabs-nav" id="tabsNav"></div>
+            <div class="tabs-tools">
+                <i class="layui-icon layui-icon-refresh" id="tabRefresh" title="刷新当前页"></i>
+                <i class="layui-icon layui-icon-close" id="tabCloseAll" title="关闭全部"></i>
+            </div>
+        </div>
+        <div class="frame-wrap">
+            <div class="frame-loading hide" id="frameLoading">
+                <i class="layui-icon layui-icon-loading layui-anim layui-anim-rotate layui-anim-loop"></i>
+            </div>
+            <iframe id="mainFrame" src="/index/welcome" title="主内容区"></iframe>
+        </div>
+    </div>
+</div>
+{/block}
+
+{block name="script"}
+<!-- 菜单数据：application/json 块，避免被当作 JS 语法解析 -->
+<script type="application/json" id="sideMenusData">{$menu_tree_json|raw}</script>
+<script>
+    function logout() {
+        layui.use(['layer'], function () {
+            var layer = layui.layer;
+            layer.confirm('确定要退出登录吗？', { icon: 3, title: '提示' }, function (index) {
+                window.location.href = '/login/logout';
+                layer.close(index);
+            });
+        });
+    }
+
+    // 菜单数据：从页面上方的 <script type="application/json"> 数据块读取
+    var SIDE_MENUS = (function () {
+        try {
+            var node = document.getElementById('sideMenusData');
+            return JSON.parse(node.textContent);
+        } catch (e) {
+            return [];
+        }
+    })();
+
+    $(function () {
+        var $frame   = $('#mainFrame');
+        var $tabsNav = $('#tabsNav');
+        // 首页固定标签（不可关闭）
+        var HOME_TAB = { title: '控制台', url: '/index/welcome' };
+        // 已打开标签集合，key = url
+        var tabs = {};
+
+        // ===== 递归渲染侧边菜单 =====
+        // 结构：顶级分组→灰色小标题；二级→平铺带图标；三级及更深→可折叠
+        function renderMenuTree(menus, isTopLevel, depth) {
+            depth = depth || 1;
+            var html = '';
+            for (var i = 0; i < menus.length; i++) {
+                var m = menus[i];
+                var hasChild = m.children && m.children.length > 0;
+                var iconHtml = m.icon ? '<i class="side-icon ' + m.icon + '"></i>' : '';
+                // 折叠箭头：仅可折叠的三级及以上（depth>=3）有子菜单项显示（二级平铺不折叠、无箭头）
+                var arrowHtml = (hasChild && depth >= 3) ? '<i class="side-arrow layui-icon layui-icon-right"></i>' : '';
+
+                if (isTopLevel) {
+                    if (hasChild) {
+                        // 顶级有子菜单 → 灰色分组标题（不折叠、不可点击）
+                        html += '<div class="nav-group-title">' + m.title + '</div>';
+                        // 二级菜单直接平铺（不折叠）
+                        html += '<ul class="side-sub">' + renderMenuTree(m.children, false, depth + 1) + '</ul>';
+                    } else {
+                        // 顶级无子菜单 → 普通菜单项
+                        html += '<li class="side-item' + (i === 0 ? ' active' : '') + '">' +
+                            '<a href="javascript:;" class="side-link" data-url="' + (m.url || '') + '" data-title="' + m.title + '">' +
+                            iconHtml + '<span class="side-text">' + m.title + '</span></a></li>';
+                    }
+                } else {
+                    // 子级项：二级平铺；三级及以上有子菜单可折叠（默认折叠）
+                    html += '<li class="' + (hasChild ? 'has-child' : '') + '">' +
+                        '<a href="javascript:;" class="side-link" data-url="' + (m.url || '') + '" data-title="' + m.title + '">' +
+                        iconHtml + '<span class="side-text">' + m.title + '</span>' + arrowHtml + '</a>';
+                    if (hasChild) {
+                        html += '<ul class="side-sub">' + renderMenuTree(m.children, false, depth + 1) + '</ul>';
+                    }
+                    html += '</li>';
+                }
+            }
+            return html;
+        }
+
+        // 初始化菜单
+        function initSideMenu() {
+            var $menu = $('#sideMenu');
+            if (typeof SIDE_MENUS !== 'undefined' && SIDE_MENUS && SIDE_MENUS.length) {
+                $menu.html(renderMenuTree(SIDE_MENUS, true));
+            }
+        }
+
+        // 初始化首页标签
+        function initHome() {
+            addTab(HOME_TAB.title, HOME_TAB.url, true);
+            highlightSideMenu(HOME_TAB.url);
+        }
+
+        // 渲染标签栏
+        function renderTabs() {
+            $tabsNav.empty();
+            var keys = Object.keys(tabs);
+            for (var i = 0; i < keys.length; i++) {
+                var t = tabs[keys[i]];
+                var $item = $(
+                    '<div class="tab-item" data-url="' + t.url + '" title="' + t.title + '">' +
+                    '<span class="tab-dot"></span>' +
+                    '<span class="tab-text">' + t.title + '</span>' +
+                    (t.fixed ? '' : '<i class="layui-icon layui-icon-close tab-close"></i>') +
+                    '</div>'
+                );
+                if (t.active) { $item.addClass('active'); }
+                $tabsNav.append($item);
+            }
+            var $active = $tabsNav.find('.tab-item.active');
+            if ($active.length) {
+                $active[0].scrollIntoView({ inline: 'nearest' });
+            }
+        }
+
+        // iframe 加载：显示加载遮罩，等待内容加载完成后由 onload 触发覆盖滑入动画
+        function loadFrame(url) {
+            $frame.attr('src', url);
+            $('#frameLoading').removeClass('hide');
+        }
+
+        // iframe 内容加载完成后：隐藏遮罩 + 触发从右侧覆盖滑入（手机页面切换效果）
+        $frame.on('load', function () {
+            $('#frameLoading').addClass('hide');
+            var $f = $frame;
+            $f.removeClass('slide-in');
+            void $f[0].offsetWidth; // 强制重排重置动画
+            $f.addClass('slide-in');
+        });
+
+        // 打开/切换标签
+        function addTab(title, url, fixed) {
+            if (!url) return;
+            if (tabs[url]) { activeTab(url); return; }
+            tabs[url] = { title: title, url: url, fixed: !!fixed, active: true };
+            Object.keys(tabs).forEach(function (k) {
+                if (k !== url) tabs[k].active = false;
+            });
+            loadFrame(url);
+            renderTabs();
+        }
+
+        function activeTab(url) {
+            if (!tabs[url]) return;
+            Object.keys(tabs).forEach(function (k) {
+                tabs[k].active = (k === url);
+            });
+            loadFrame(tabs[url].url);
+            renderTabs();
+        }
+
+        // 关闭标签
+        function closeTab(url) {
+            if (!tabs[url] || tabs[url].fixed) return;
+            var wasActive = tabs[url].active;
+            delete tabs[url];
+            if (wasActive) {
+                var keys = Object.keys(tabs);
+                if (keys.length > 0) {
+                    var lastKey = keys[keys.length - 1];
+                    tabs[lastKey].active = true;
+                    loadFrame(tabs[lastKey].url);
+                    highlightSideMenu(tabs[lastKey].url);
+                }
+            }
+            renderTabs();
+        }
+
+        // 关闭全部（保留首页）
+        function closeAll() {
+            Object.keys(tabs).forEach(function (k) {
+                if (!tabs[k].fixed) delete tabs[k];
+            });
+            var homeUrl = HOME_TAB.url;
+            Object.keys(tabs).forEach(function (k) {
+                tabs[k].active = (k === homeUrl);
+            });
+            loadFrame(homeUrl);
+            highlightSideMenu(homeUrl);
+            renderTabs();
+        }
+
+        // 高亮左侧菜单中 url 对应的项（并逐级展开父级）
+        function highlightSideMenu(url) {
+            if (!url) return;
+            var $link = $('.side-menu a[data-url="' + url + '"]');
+            if (!$link.length) return;
+            // 清除所有高亮
+            $('.side-menu li').removeClass('active');
+            // 高亮目标
+            var $target = $link.closest('li');
+            $target.addClass('active');
+            // 逐级展开所有祖先父级（直到顶级 .side-item）
+            var $parent = $target.parent('.side-sub');
+            while ($parent.length) {
+                $parent.closest('li.side-item, li').addClass('open');
+                $parent = $parent.parent().parent('.side-sub');
+            }
+        }
+
+        // 侧边菜单点击：父级折叠展开 / 无子菜单访问页面 + 联动高亮
+        $(document).on('click', '.side-menu .side-link', function (e) {
+            var $li = $(this).closest('li');
+            var $sub = $(this).next('.side-sub');
+            var url = $(this).attr('data-url');
+
+            // 有子菜单的父级（无 url）：切换展开/收起
+            if ($sub.length) {
+                e.preventDefault();
+                $li.toggleClass('open');
+                return;
+            }
+
+            if (!url || url === 'javascript:;') return;
+            e.preventDefault();
+
+            // 移动端：先收起抽屉，等待收起动画完全结束后再跳转，避免 iframe 加载阻塞导致卡顿
+            if (isMobile()) {
+                closeMobileDrawer();
+                var $link = $(this);
+                setTimeout(function () {
+                    addTab($link.attr('data-title') || '页面', url);
+                    highlightSideMenu(url);
+                }, 320); // 等待抽屉收起动画（0.3s）完成
+                return;
+            }
+            addTab($(this).attr('data-title') || '页面', url);
+            highlightSideMenu(url);
+        });
+
+        // 侧边栏底部个人资料卡片：跳转到 /profile/index（在标签页中打开）
+        $('#profileLink').on('click', function (e) {
+            e.preventDefault();
+            if (isMobile()) {
+                closeMobileDrawer();
+                setTimeout(function () {
+                    addTab('个人资料', '/profile/index');
+                }, 320); // 等待抽屉收起动画完成
+                return;
+            }
+            addTab('个人资料', '/profile/index');
+        });
+
+        // 点击标签切换（同时联动高亮左侧菜单）
+        $tabsNav.on('click', '.tab-item', function () {
+            activeTab($(this).attr('data-url'));
+            highlightSideMenu($(this).attr('data-url'));
+        });
+
+        // 点击关闭按钮
+        $tabsNav.on('click', '.tab-close', function (e) {
+            e.stopPropagation();
+            closeTab($(this).closest('.tab-item').attr('data-url'));
+        });
+
+        // 刷新当前页
+        $('#tabRefresh').on('click', function () {
+            var cur = null;
+            Object.keys(tabs).forEach(function (k) {
+                if (tabs[k].active) cur = tabs[k].url;
+            });
+            if (cur) {
+                loadFrame(cur + (cur.indexOf('?') > -1 ? '&' : '?') + '_t=' + Date.now());
+            }
+        });
+
+        // 关闭全部
+        $('#tabCloseAll').on('click', function () { closeAll(); });
+
+        // ===== 移动端抽屉（PC 端无折叠功能） =====
+        var isMobile = function () {
+            return $(window).width() <= 768;
+        };
+
+        // 移动端抽屉开关（展开时同步显示遮罩）
+        function toggleSide() {
+            if (isMobile()) {
+                var isOpen = $('.layui-side').toggleClass('layui-side-show').hasClass('layui-side-show');
+                $('#sideMask').toggleClass('show', isOpen);
+            }
+        }
+
+        // 移动端展开按钮
+        $('#menuToggle').on('click', toggleSide);
+
+        // 移动端点击遮罩：折叠菜单并隐藏遮罩
+        $('#sideMask').on('click', function () {
+            $('.layui-side').removeClass('layui-side-show');
+            $('#sideMask').removeClass('show');
+        });
+
+        // 移动端点击菜单后自动收起抽屉（含遮罩）
+        function closeMobileDrawer() {
+            if (isMobile()) {
+                $('.layui-side').removeClass('layui-side-show');
+                $('#sideMask').removeClass('show');
+            }
+        }
+
+        // 窗口尺寸变化：重置移动端抽屉状态
+        $(window).on('resize', function () {
+            if (!isMobile()) {
+                $('.layui-side').removeClass('layui-side-show');
+                $('#sideMask').removeClass('show');
+            }
+        });
+
+        // 启动
+        initSideMenu();
+        initHome();
+    });
+</script>
+{/block}

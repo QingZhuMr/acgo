@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{block name="title"}ACGO 后台管理{/block}</title>
+
+    <!-- 主题预设：head 内联同步执行，避免深浅色闪烁 -->
+    <script>
+    (function () {
+        try {
+            var t = localStorage.getItem('acgo_theme');
+            if (t === 'light' || t === 'dark' || t === 'system') {
+                if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', t);
+            }
+        } catch (e) {}
+    })();
+    </script>
+
+    <!-- ===== 公共 CSS ===== -->
+    <link rel="stylesheet" href="/static/common/lib/layui/css/layui.css">
+    <link rel="stylesheet" href="/static/common/lib/fontawesome/css/all.min.css">
+
+    <style>
+        /* ===== 主题变量（白天模式默认） ===== */
+        :root {
+            --primary: #0A84FF;
+            --primary-hover: #0071e3;
+            --primary-soft: rgba(10,132,255,0.1);
+            --primary-faint: rgba(10,132,255,0.05);
+            --success: #34C759;
+            --warning: #FF9500;
+            --danger: #FF3B30;
+            --info: #32ADE6;
+            --neutral: #AEAEB2;
+
+            --bg: #ffffff;              /* 页面/卡片背景 */
+            --bg-soft: #f7f9fc;         /* 次要背景（表头/操作按钮/钱包项） */
+            --bg-hover: #f3f4f6;        /* 悬停背景 */
+            --bg-muted: #f5f5f5;        /* 侧边菜单悬停背景 */
+
+            --text: #111827;            /* 主文字 */
+            --text-body: #374151;       /* 正文 */
+            --text-secondary: #4b5563;  /* 次要文字 */
+            --text-muted: #6b7280;      /* 弱文字 */
+            --text-faint: #9ca3af;      /* 最弱文字/占位 */
+
+            --border: rgba(0,0,0,0.08);
+            --border-light: rgba(0,0,0,0.05);
+            --border-strong: #e8e8e8;
+        }
+        /* ===== 主题变量（黑夜模式） ===== */
+        [data-theme="dark"] {
+            --primary: #0A84FF;
+            --primary-hover: #0071e3;
+            --primary-soft: rgba(10,132,255,0.22);
+            --primary-faint: rgba(10,132,255,0.12);
+            --success: #34C759;
+            --warning: #FF9500;
+            --danger: #FF3B30;
+            --info: #32ADE6;
+            --neutral: #AEAEB2;
+
+            --bg: #1c1c1e;              /* 页面/卡片背景 */
+            --bg-soft: #2c2c2e;         /* 次要背景 */
+            --bg-hover: #3a3a3c;        /* 悬停背景 */
+            --bg-muted: #2c2c2e;        /* 侧边菜单悬停背景 */
+
+            --text: #f5f5f7;            /* 主文字 */
+            --text-body: #e5e5ea;       /* 正文 */
+            --text-secondary: #d1d1d6;  /* 次要文字 */
+            --text-muted: #98989d;      /* 弱文字 */
+            --text-faint: #636366;      /* 最弱文字/占位 */
+
+            --border: rgba(0,0,0,0.2);
+            --border-light: rgba(0,0,0,0.12);
+            --border-strong: #3a3a3c;
+        }
+
+        /* ===== 公共基础样式 ===== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text-body);
+            padding: 15px;
+            min-height: 100vh;
+            box-sizing: border-box;
+            transition: background .25s ease, color .25s ease;
+        }
+        /* 搜索栏（无卡片装饰：无圆角、阴影、边框） */
+        .page-search, .search-bar {
+            background: var(--bg);
+            padding: 15px;
+            margin-bottom: 15px;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+            /* width: fit-content; */
+            max-width: 100%;
+        }
+        .page-search .layui-form-item, .search-bar .layui-form-item { margin-bottom: 0; }
+        /* 搜索栏表单：桌面端用 grid 网格对齐（4列：输入框200+下拉140+下拉140+按钮自适应），手机端 block 全宽 */
+        .page-search form.layui-form, .search-bar form.layui-form {
+            display: grid;
+            grid-template-columns: 200px 140px 140px auto;
+            gap: 10px;
+            align-items: center;
+        }
+        .page-search .layui-inline, .search-bar .layui-inline {
+            margin: 0;
+            display: flex;
+            align-items: center;
+        }
+        .page-search .layui-inline:last-child,
+        .search-bar .layui-inline:last-child {
+            white-space: nowrap;
+        }
+        /* 输入框/下拉自适应其父 inline 宽度，统一高度与按钮对齐 */
+        .page-search .layui-input,
+        .page-search .layui-select,
+        .search-bar .layui-input,
+        .search-bar .layui-select {
+            height: 38px;
+            line-height: 38px;
+            border-radius: 10px;
+            width: 100%;
+        }
+        .page-search .layui-form-select .layui-input.layui-unselect,
+        .search-bar .layui-form-select .layui-input.layui-unselect {
+            line-height: 38px;
+        }
+        /* 内容区（无卡片装饰：无圆角、阴影、边框） */
+        .page-content {
+            background: var(--bg);
+            padding: 18px;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+        }
+        .page-toolbar { margin-bottom: 12px; }
+        /* 状态/等级徽章（iOS 胶囊） */
+        /* ===== iOS 胶囊徽章（全局统一，纯色背景） ===== */
+        .badge, .badge-level, .badge-status, .layui-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 11px;
+            border-radius: 999px;
+            font-size: 12px;
+            color: #fff;
+            font-weight: 500;
+            line-height: 1;
+            vertical-align: middle;
+            white-space: nowrap;
+        }
+        /* 各语义色（纯色背景） */
+        .badge-green, .layui-badge.layui-bg-green, .badge-l1, .badge-on {
+            background: #34C759 !important;
+        }
+        .badge-red, .layui-badge.layui-bg-red, .badge-l9 {
+            background: #FF3B30 !important;
+        }
+        .badge-blue, .layui-badge.layui-bg-blue, .badge-l2 {
+            background: #0A84FF !important;
+        }
+        .badge-cyan, .layui-badge.layui-bg-cyan {
+            background: #32ADE6 !important;
+        }
+        .badge-warm {
+            background: #FF9500 !important;
+        }
+        .badge-gray, .layui-badge.layui-bg-gray, .badge-off {
+            background: #AEAEB2 !important;
+        }
+        /* ===== iOS 按钮规范体系 ===== */
+        /* 基础按钮 */
+        .layui-btn {
+            border-radius: 8px;
+            transition: all .2s ease;
+            border: none;
+            font-weight: 500;
+            font-family: inherit;
+            position: relative;
+            overflow: hidden;
+        }
+        .layui-btn::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(rgba(255,255,255,0.15), transparent 50%);
+            pointer-events: none;
+            opacity: 0.6;
+        }
+        .layui-btn:hover { filter: brightness(1.08); opacity: 1; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+        .layui-btn:active { transform: translateY(0); filter: brightness(0.95); }
+        /* 尺寸规范 */
+        .layui-btn.lg { height: 48px; line-height: 48px; padding: 0 28px; font-size: 16px; border-radius: 12px; }
+        .layui-btn.xl { height: 44px; line-height: 44px; padding: 0 24px; font-size: 15px; border-radius: 11px; }
+        .layui-btn, .layui-btn.md { height: 38px; line-height: 38px; padding: 0 20px; font-size: 14px; border-radius: 10px; }
+        .layui-btn-sm { height: 32px; line-height: 32px; padding: 0 14px; font-size: 13px; border-radius: 8px; }
+        .layui-btn-xs { height: 26px; line-height: 26px; padding: 0 11px; font-size: 12px; border-radius: 7px; }
+        /* 主色调（iOS 系统蓝） */
+        .layui-btn { background: var(--primary); }
+        .layui-btn-normal { background: var(--primary);  }
+        .op-btn i{
+            color: #fff !important;
+        }
+        .layui-layer-prompt .layui-layer-input {
+            background: var(--bg-hover);
+            color: var(--text-body);
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }
+        .layui-btn-primary {
+            background: var(--bg-hover);
+            color: var(--text-body);
+            border: 1px solid var(--border);
+        }
+        .layui-btn-primary:hover { background: var(--bg-hover); color: var(--text-body); box-shadow: none; }
+        .layui-btn-green { background: var(--success); }
+        .layui-btn-warm { background: var(--warning); }
+        .layui-btn-danger { background: var(--danger); }
+        .layui-btn-cyan { background: var(--info); }
+        .layui-btn-dark { background: #3A3A3C; }
+        .layui-btn-gray { background: var(--neutral); }
+        /* 表单外按钮：主题蓝背景 + 白色文字（新增/刷新/人工充值等页面按钮） */
+        .page-btn {
+            background: var(--primary) !important;
+            color: #fff !important;
+            border: 1px solid var(--primary) !important;
+        }
+        .page-btn:hover {
+            background: var(--primary-hover) !important;
+            color: #fff !important;
+            border-color: var(--primary-hover) !important;
+            box-shadow: none;
+        }
+        /* 搜索按钮：仅图标，无文字（居中、去掉内边距补偿） */
+        .search-btn {
+            width: 38px;
+            padding: 0 !important;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .search-btn i { margin: 0; font-size: 15px; }
+        /* 分页页码高亮：主题色蓝色 */
+        .layui-laypage .layui-laypage-curr .layui-laypage-em,
+        .layui-laypage .layui-laypage-curr em {
+            background-color: var(--primary) !important;
+            color: #fff !important;
+        }
+        /* Layui 表格现代化（不使用 overflow:hidden，避免裁剪操作下拉菜单） */
+        .layui-table-view {
+            border-radius: 0;
+            border: 1px solid var(--border-light);
+        }
+        /* 表头圆角取消 */
+        .layui-table-view .layui-table-header th:first-child { border-top-left-radius: 0; }
+        .layui-table-view .layui-table-header th:last-child { border-top-right-radius: 0; }
+        /* 固定列容器允许溢出，让操作列下拉菜单不被裁剪 */
+        .layui-table-view .layui-table-fixed,
+        .layui-table-view .layui-table-fixed-r {
+            overflow: visible !important;
+        }
+        .layui-table th {
+            background: var(--bg-soft);
+            color: var(--text-body);
+            font-weight: 600;
+            height: 48px;
+        }
+        /* 表格行高固定 48px（表头 + 数据行） */
+        .layui-table-view .layui-table-cell {
+            height: 48px;
+            line-height: 48px;
+            padding: 0 15px;
+        }
+        .layui-table-view .layui-table-main tbody tr,
+        .layui-table-view .layui-table-fixed tbody tr {
+            height: 48px;
+            line-height: 48px;
+        }
+        .layui-table-view .layui-table-header .layui-table-cell {
+            height: 48px;
+            line-height: 48px;
+        }
+        /* Layui select 下拉框：提升层级、绝对定位，避免被卡片 backdrop-filter 层叠上下文压住 */
+        .layui-form-select dl {
+            border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+            z-index: 1300 !important;
+            position: absolute;
+            overflow-y: auto;
+            max-height: 200px;
+        }
+        /* 卡片不拦截内部下拉（select/layer 等浮层） */
+        .page-search, .page-content, .card, .setting-card, .content-box {
+            position: relative;
+        }
+        /* 统一取消所有卡片的圆角、阴影、边框，并改为页面背景色 */
+        .card, .setting-card, .content-box {
+            background: var(--bg);
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+        }
+        /* 搜索区层级高于内容区，确保其下拉不被遮挡 */
+        .page-search { z-index: 20; }
+        .page-content { z-index: 10; }
+        /* 弹窗：Layui 自动管理层级；不使用 overflow:hidden 避免裁剪关闭按钮 */
+        .layui-layer { border-radius: 10px; overflow: hidden;background-color: var(--bg);max-width: 680px;}
+        /* 图片放大层：隐藏右上角关闭按钮（保留点击遮罩关闭） */
+        .layui-layer-photos .layui-layer-close {
+            display: none !important;
+        }
+        .layui-input, .layui-textarea, .layui-select,
+        select.layui-input, textarea.layui-textarea {
+            border-radius: 8px;
+            border-color: var(--border);
+            background-color: var(--bg-hover);
+            color: var(--text);
+            transition: background-color .2s ease, color .2s ease, border-color .2s ease;
+        }
+        /* 原生 select 浏览器默认在某些主题下仍为白色，覆盖 */
+        select.layui-input { appearance: none; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%); background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 28px; }
+        .layui-input:focus, .layui-textarea:focus {
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 0 3px var(--primary-soft);
+        }
+        /* layui 表格 / 表体：黑夜变深 */
+        .layui-table-box, .layui-table-body { background: var(--bg); color: var(--text-body); }
+        .layui-table { background: var(--bg); color: var(--text-body); }
+        .layui-table tr, .layui-table tbody tr { color: var(--text-body); background: var(--bg); }
+        .layui-table td { color: var(--text-body); background: transparent; border-color: var(--border) !important; }
+        .layui-table[lay-even] tr:nth-child(even) { background: var(--bg-soft) !important; }
+        .layui-table[lay-even] tr:nth-child(even) td { color: var(--text-body); }
+        .layui-table[lay-skin="line"] td, .layui-table[lay-skin="row"] td,
+        .layui-table[lay-skin="nob"] td, .layui-table[lay-skin="stripe"] td { border-color: var(--border) !important; }
+        .layui-table thead tr, .layui-table thead { background: var(--bg-soft); }
+        .layui-table th { background: var(--bg-soft) !important; color: var(--text-body) !important; border-color: var(--border) !important; }
+        /* 表格排序箭头：恢复 layui 默认样式（未激活 #b2b2b2）；仅覆盖激活态为主题色 */
+        .layui-table-sort[lay-sort="asc"] .layui-table-sort-asc { border-bottom-color: var(--primary) !important; }
+        .layui-table-sort[lay-sort="desc"] .layui-table-sort-desc { border-top-color: var(--primary) !important; }
+        /* 表格固定列背景 */
+        .layui-table-fixed .layui-table-body td { background-color: var(--bg); }
+        .layui-table-fixed-l .layui-table-body td { background-color: var(--bg) !important; }
+        .layui-table-fixed-r .layui-table-body td { background-color: var(--bg) !important; }
+        .layui-table-fixed-r .layui-table-header th { background-color: var(--bg-soft) !important; }
+        /* layui 表格全局边框：覆盖默认 #eee，适配暗色（与官方选择器一致） */
+        .layui-table td, .layui-table th,
+        .layui-table-col-set, .layui-table-fixed-r, .layui-table-grid-down,
+        .layui-table-header, .layui-table-mend, .layui-table-page,
+        .layui-table-tips-main, .layui-table-tool, .layui-table-total,
+        .layui-table-view, .layui-table[lay-skin="line"], .layui-table[lay-skin="row"] {
+            border-color: var(--border) !important;
+        }
+        /* 表格视图右侧伪元素分隔线：暗色适配为页面背景 */
+        .layui-table-view:after {
+            background-color: var(--bg) !important;
+        }
+        /* layui form label / 提示文字 */
+        .layui-form-label { color: var(--text-body); }
+        .layui-form-mid, .layui-word-aux { color: var(--text-muted); }
+        /* layui 表单 select 下拉框组件（渲染为 div，非原生 select） */
+        .layui-form-select .layui-select-title,
+        .layui-form-select .layui-select-title input {
+            background-color: var(--bg-hover) ;
+            color: var(--text);
+            border-color: var(--border) !important;
+            border-radius: 10px !important;
+        }
+        .layui-form-select dl { background: var(--bg-soft) !important; border-color: var(--border) !important; }
+        .layui-form-select dl dd { color: var(--text-body) !important; }
+        .layui-form-select dl dd:hover { background: var(--primary-soft) !important; color: var(--primary) !important; }
+        .layui-form-select dl dd.layui-this { background: var(--primary) !important; color: #fff !important; }
+        /* layui checkbox/radio */
+        .layui-form-checkbox[lay-skin="primary"] span { color: var(--text-body); }
+        /* layui 分页文字 / 跳转框 */
+        .layui-laypage a, .layui-laypage span, .layui-laypage input { color: var(--text-body) !important; }
+        .layui-laypage a:hover { color: var(--primary) !important; }
+        .layui-laypage input, .layui-laypage select { background: var(--bg-soft); color: var(--text-body); border-color: var(--border) !important; }
+        .layui-laypage .layui-laypage-btn { background: var(--bg-soft) !important; color: var(--text-body) !important; border-color: var(--border) !important; }
+        .layui-laypage .layui-laypage-btn:hover { color: var(--primary) !important; border-color: var(--primary) !important; }
+        /* 表格工具栏（默认 toolbar 区域） */
+        .layui-table-tool { background: var(--bg); border-color: var(--border-light) !important; }
+        .layui-table-tool-self i { color: var(--text-secondary) !important; }
+        /* 表格工具栏图标按钮（筛选/打印/导出）：适配主题色与圆角 */
+        .layui-table-tool .layui-inline[lay-event] {
+            color: var(--text-body) !important;
+            border-color: var(--border) !important;
+            border-radius: 5px !important;
+        }
+        .layui-table-tool .layui-inline[lay-event]:hover {
+            color: var(--primary) !important;
+            border-color: var(--primary) !important;
+        }
+        /* layer 弹框 */
+        .layui-layer-content, .layui-layer-page { background: var(--bg-soft); color: var(--text-body); }
+        .layui-layer-btn { border-top-color: var(--border) !important; background: var(--bg-soft); }
+        .layui-layer-btn a { color: var(--text-body) !important; border-color: var(--border) !important; }
+        .layui-layer-btn .layui-layer-btn0 { background: var(--primary) !important; color: #fff !important; border-color: var(--primary) !important; }
+        .layui-layer-btn .layui-layer-btn1 { background: var(--bg-soft) !important; color: var(--text-body) !important; border-color: var(--border) !important; }
+        .layui-layer-btn .layui-layer-btn1:hover { background: var(--primary-faint) !important; color: var(--primary) !important; border-color: var(--primary) !important; }
+        /* layer 关闭按钮 / 边框 */
+        .layui-layer-close, .layui-layer-close .layui-layer-close2 { color: var(--text-faint) !important; }
+        .layui-layer-close:hover { color: var(--text) !important; }
+        .layui-layer { border: 1px solid var(--border); }
+        .layui-layer-title { border-bottom-color: var(--border) !important; }
+        /* layer.msg 轻提示（toast）：适配暗色背景、文字、边框、icon */
+        .layui-layer-msg {
+            background: var(--bg-soft) !important;
+            border: 1px solid var(--border) !important;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.3) !important;
+        }
+        .layui-layer-msg .layui-layer-content {
+            color: var(--text) !important;
+            background: transparent !important;
+        }
+        .layui-layer-msg .layui-layer-ico { border: none !important; }
+        .layui-layer-msg .layui-layer-ico1 { background-color: var(--success) !important; }
+        .layui-layer-msg .layui-layer-ico2 { background-color: var(--danger) !important; }
+        .layui-layer-msg .layui-layer-ico3 { background-color: var(--warning) !important; }
+        .layui-layer-msg .layui-layer-ico4 { background-color: var(--primary) !important; }
+        /* 弹框内表单元素：跟随主题（覆盖 layui 默认白色） */
+        .layui-layer-page .layui-form .layui-input,
+        .layui-layer-page .layui-form .layui-textarea,
+        .layui-layer-page .layui-form .layui-select {
+            background-color: var(--bg-hover);
+            color: var(--text);
+            border-color: var(--border) !important;
+        }
+        .layui-layer-page .layui-form .layui-input::placeholder,
+        .layui-layer-page .layui-form .layui-textarea::placeholder { color: var(--text-faint); }
+        .layui-layer-page .layui-form-label { color: var(--text-body); }
+        .layui-layer-page .layui-form-mid,
+        .layui-layer-page .layui-word-aux { color: var(--text-muted); }
+        /* input placeholder 文字 */
+        .layui-input::placeholder, .layui-textarea::placeholder { color: var(--text-faint); opacity: 1; }
+        /* ===== 字体规范 ===== */
+        body, .layui-layer, .layui-table, .layui-form, .layui-laypage,
+        .layui-laydate, .layui-nav, .layui-tab, .layui-tree {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+        }
+        h1, .h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.3px; }
+        h2, .h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.2px; }
+        h3, .h3 { font-size: 16px; font-weight: 600; }
+        h4, .h4 { font-size: 14px; font-weight: 600; }
+        .text-title   { font-size: 16px; font-weight: 600; color: var(--text); }
+        .text-body    { font-size: 14px; color: var(--text-body); }
+        .text-secondary{ font-size: 13px; color: var(--text-muted); }
+        .text-caption { font-size: 12px; color: var(--text-faint); }
+        /* ===== 选中 / 非选中状态 ===== */
+        /* 选中态：iOS 系统蓝底 */
+        .sel-active {
+            background: var(--primary-soft);
+            color: var(--primary);
+            border-radius: 8px;
+        }
+        /* 列表行悬停 / 选中 */
+        .layui-table tbody tr:hover { background: var(--primary-faint) !important; }
+        .layui-table tbody tr.selected { background: var(--primary-soft) !important; }
+        /* ===== 表格操作列折叠 ===== */
+        .op-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 26px;
+            padding: 0 12px;
+            font-size: 12px;
+            border-radius: 7px;
+            /* background: var(--bg-hover); */
+            color: var(--text-body);
+            cursor: pointer;
+            border: 1px solid var(--border-light);
+            transition: all .2s ease;
+            white-space: nowrap;
+            text-decoration: none;
+        }
+        /* .op-btn:hover { background: var(--primary-soft); color: var(--primary); border-color: var(--primary-soft); } */
+        .op-btn.danger:hover { background: rgba(255,59,48,0.1); color: var(--danger); border-color: rgba(255,59,48,0.3); }
+        /* ===== 操作弹窗（Layui layer） ===== */
+        /* 操作对象提示行：比标题略小、颜色略浅 */
+        .op-layer-target {
+            padding: 10px 14px 12px;
+            font-size: 13px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 10px;
+        }
+        .op-layer-target i { color: var(--text-faint); font-size: 12px; }
+        .op-layer-target b {
+            color: var(--text-body);
+            font-weight: 600;
+            max-width: 160px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .op-layer-body {
+            padding: 10px 14px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        /* ===== 钱包余额弹窗 ===== */
+        .wallet-layer {
+            padding: 8px 16px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .wallet-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: var(--bg-soft);
+            border: 1px solid var(--border-light);
+            border-radius: 12px;
+            transition: all .2s ease;
+        }
+        .wallet-item:hover { background: var(--primary-faint); }
+        .wallet-currency {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 12px;
+            border-radius: 999px;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .wallet-balance {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text);
+            font-variant-numeric: tabular-nums;
+        }
+        .op-act-btn {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            width: 100%;
+            height: 40px;
+            padding: 0 14px;
+            font-size: 14px;
+            color: var(--text-body);
+            background: var(--bg-hover);
+            border: 1px solid var(--border-light);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all .2s ease;
+            font-family: inherit;
+        }
+        .op-act-btn i { width: 18px; margin-right: 8px; text-align: center; color: var(--text-muted); }
+        .op-act-btn:hover { background: var(--primary-soft); color: var(--primary); }
+        .op-act-btn:hover i { color: var(--primary); }
+        .op-act-btn.warn { color: var(--warning); }
+        .op-act-btn.warn:hover { background: rgba(255,149,0,0.12); color: var(--warning); }
+        .op-act-btn.danger { color: var(--danger); }
+        .op-act-btn.danger:hover { background: rgba(255,59,48,0.12); color: var(--danger); }
+        /* ===== 弹框规范（layer 基础） ===== */
+        /* 标题栏：顶部圆角 */
+        .layui-layer-title {
+            background: var(--bg-soft);
+            color: var(--text);
+            font-weight: 600;
+            /* border-radius: 10px; */
+        }
+        /* 内容区：圆角 */
+        .layui-layer-page .layui-layer-content {
+            border-radius: 10px;
+        }
+        /* 表单弹框内容 */
+        .layui-layer-page .layui-form { padding: 24px 28px; }
+        .layui-layer-page .layui-form .layui-input,
+        .layui-layer-page .layui-form .layui-select {
+            height: 40px;
+            border-radius: 10px;
+        }
+
+        /* ===== 移动端响应式（≤768px）搜索区对齐 ===== */
+        @media (max-width: 768px) {
+            /* 搜索栏内的输入框、下拉、按钮：强制全宽 + 间距10px，避免错位 */
+            .page-search, .search-bar { padding: 12px; }
+            /* 移动端：form 改用 block（让 inline 自然换行成单列） */
+            .page-search form.layui-form, .search-bar form.layui-form {
+                display: block;
+            }
+            .page-search .layui-inline,
+            .search-bar .layui-inline {
+                display: block;
+                width: 100%;
+                margin: 0 0 10px 0;
+                flex: 0 0 100% !important;
+            }
+            .page-search .layui-inline:last-child,
+            .search-bar .layui-inline:last-child { margin-bottom: 0; }
+            .page-search input.layui-input,
+            .page-search select.layui-input,
+            .page-search .layui-form-select .layui-input,
+            .search-bar input.layui-input,
+            .search-bar select.layui-input,
+            .search-bar .layui-form-select .layui-input {
+                width: 100% !important;
+                height: 40px;
+                line-height: 40px;
+                border-radius: 10px;
+                font-size: 14px;
+            }
+            /* 按钮组：保持全宽且间距10px */
+            .page-search button.layui-btn,
+            .search-bar button.layui-btn {
+                margin: 0 10px 0 0;
+                height: 40px;
+                line-height: 40px;
+                border-radius: 10px;
+            }
+            .page-search button.layui-btn:last-child,
+            .search-bar button.layui-btn:last-child { margin-right: 0; }
+            /* 移动端搜索按钮：固定 40px 方块，与输入框等高对齐 */
+            .page-search .search-btn,
+            .search-bar .search-btn {
+                width: 40px;
+                flex: 0 0 40px;
+                margin: 0 !important;
+            }
+        }
+        .layui-form-label{width:90px;}
+
+        .layui-input[disabled], .layui-textarea[disabled]{color: var(--text-muted) !important;}
+    </style>
+
+    <!-- 页面私有样式 -->
+    {block name="style"}{/block}
+</head>
+<body>
+
+<!-- 页面主体内容 -->
+{block name="content"}{/block}
+
+<!-- ===== 公共 JS ===== -->
+<script src="/static/common/js/theme.js"></script>
+<script>ACGOTheme.init();</script>
+<script src="/static/common/js/jquery-3.7.1.min.js"></script>
+<script src="/static/common/lib/layui/layui.js"></script>
+
+<!-- 页面私有 JS -->
+{block name="script"}{/block}
+</body>
+</html>

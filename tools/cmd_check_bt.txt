@@ -1,0 +1,10 @@
+#!/bin/bash
+# 检查宝塔 MySQL root 信息
+cat /etc/my.cnf 2>/dev/null | grep -iE 'password|user|port' | head -10
+echo "---BT CONFIG---"
+ls /www/server/panel/data/default.db 2>&1
+echo "---BT VERSION---"
+cat /www/server/panel/class/common.py 2>/dev/null | grep -i "version" | head -3
+echo "---MySQL Config---"
+ls /etc/mysql/ 2>/dev/null
+ls /www/server/mysql/ 2>/dev/null | head

@@ -1,0 +1,275 @@
+{extend name="layout" /}
+
+{block name="title"}客户端版本推送{/block}
+
+{block name="content"}
+<div class="page-search">
+    <form class="layui-form" lay-filter="searchForm">
+        <div class="layui-inline">
+            <input type="text" name="keyword" placeholder="版本号/标题" autocomplete="off" class="layui-input" style="width:200px;">
+        </div>
+        <div class="layui-inline">
+            <select name="platform" title="平台筛选">
+                <option value="">全部平台</option>
+                <option value="win">Windows</option>
+                <option value="mac">macOS</option>
+                <option value="ios">iOS</option>
+                <option value="android">Android</option>
+            </select>
+        </div>
+        <div class="layui-inline">
+            <button type="button" class="layui-btn search-btn" lay-submit lay-filter="search" title="搜索"><i class="fas fa-search"></i></button>
+        </div>
+    </form>
+</div>
+
+<div class="page-content">
+    <table id="updateTable" lay-filter="updateTable"></table>
+</div>
+
+<script type="text/html" id="updateToolbar">
+    <div class="layui-btn-container">
+        <button class="layui-btn layui-btn-sm page-btn" lay-event="add">新增版本推送</button>
+        <button class="layui-btn layui-btn-sm page-btn" lay-event="refresh">刷新</button>
+    </div>
+</script>
+
+<script type="text/html" id="statusTpl">
+    {{# if(d.status == 1){ }}
+        <span class="badge badge-green">上线</span>
+    {{# } else { }}
+        <span class="badge badge-gray">下线</span>
+    {{# } }}
+</script>
+
+<script type="text/html" id="mandatoryTpl">
+    {{# if(d.mandatory == 1){ }}
+        <span class="badge badge-red">强制</span>
+    {{# } else { }}
+        <span class="badge badge-gray">可选</span>
+    {{# } }}
+</script>
+
+<script type="text/html" id="barTpl">
+    <button type="button" class="layui-btn layui-btn-xs op-btn" lay-event="ops"><i class="fas fa-wrench"></i></button>
+</script>
+{/block}
+
+{block name="script"}
+<script>
+layui.use(['table', 'form', 'layer'], function () {
+    var table  = layui.table;
+    var form   = layui.form;
+    var layer  = layui.layer;
+    var $      = layui.$;
+
+    // 初始化渲染表单组件
+    form.render();
+
+    // 搜索条件
+    var searchWhere = {};
+
+    var updateTable = table.render({
+        elem: '#updateTable',
+        url: '/update/list',
+        method: 'get',
+        toolbar: '#updateToolbar',
+        defaultToolbar: ['filter', 'print', 'exports'],
+        page: true,
+        limit: 20,
+        limits: [10, 20, 50, 100],
+        cols: [[
+            { type: 'numbers', fixed: 'left' },
+            { field: 'platform', title: '平台', width: 100, templet: function (d) {
+                var map = { win: 'Windows', mac: 'macOS', ios: 'iOS', android: 'Android' };
+                return map[d.platform] || d.platform;
+            } },
+            { field: 'version', title: '版本号', width: 110 },
+            { field: 'title', title: '标题', minWidth: 150 },
+            { field: 'message', title: '更新说明', minWidth: 200 },
+            { field: 'download_url', title: '下载/跳转地址', minWidth: 200, templet: function (d) {
+                return d.download_url.length > 30 ? d.download_url.substring(0, 30) + '...' : d.download_url;
+            } },
+            { field: 'mandatory', title: '强制', width: 70, align: 'center', templet: '#mandatoryTpl' },
+            { field: 'status', title: '状态', width: 80, align: 'center', templet: '#statusTpl' },
+            { field: 'create_time', title: '创建时间', minWidth: 160, templet: function (d) {
+                return d.create_time ? new Date(d.create_time * 1000).toLocaleString() : '';
+            } },
+            { title: '操作', width: 90, toolbar: '#barTpl', fixed: 'right', align: 'center' }
+        ]],
+        skin: 'line',
+        even: true,
+        text: { none: '暂无数据' }
+    });
+
+    // 搜索
+    form.on('submit(search)', function (data) {
+        searchWhere = data.field || {};
+        updateTable.reload({ where: searchWhere, page: { curr: 1 } });
+        return false;
+    });
+
+    // 工具栏事件（新增/刷新）
+    table.on('toolbar(updateTable)', function (obj) {
+        if (obj.event === 'add') openForm('add');
+        if (obj.event === 'refresh') updateTable.reload();
+    });
+
+    // 操作列
+    table.on('tool(updateTable)', function (obj) {
+        var data = obj.data;
+        if (obj.event === 'ops') {
+            var btns = '';
+            btns += '<button type="button" class="op-act-btn" data-ev="edit"><i class="fas fa-edit"></i> 编辑</button>';
+            if (data.status === 1) {
+                btns += '<button type="button" class="op-act-btn warn" data-ev="toggle"><i class="fas fa-ban"></i> 下线</button>';
+            } else {
+                btns += '<button type="button" class="op-act-btn" data-ev="toggle"><i class="fas fa-check-circle"></i> 上线</button>';
+            }
+            btns += '<button type="button" class="op-act-btn danger" data-ev="del"><i class="fas fa-trash"></i> 删除</button>';
+
+            var platformName = { win: 'Windows', mac: 'macOS', ios: 'iOS', android: 'Android' }[data.platform] || data.platform;
+            var html = '<div class="op-layer-target"><i class="fas fa-cloud-download-alt"></i> 操作对象：<b>' + platformName + ' ' + data.version + '</b></div>' +
+                       '<div class="op-layer-body">' + btns + '</div>';
+            var opsLayer = layer.open({
+                type: 1,
+                title: '操作',
+                area: ['280px', 'auto'],
+                content: html,
+                closeBtn: 1,
+                shade: 0.3,
+                shadeClose: true
+            });
+            $('.op-layer-body button').off('click').on('click', function () {
+                var ev = $(this).attr('data-ev');
+                layer.close(opsLayer);
+                if (ev === 'edit') openForm('edit', data);
+                else if (ev === 'toggle') toggleStatus(data);
+                else if (ev === 'del') deleteItem(data);
+            });
+        }
+    });
+
+    // 上下线切换
+    function toggleStatus(data) {
+        var newStatus = data.status === 1 ? 0 : 1;
+        layer.confirm('确定将【' + data.version + '】' + (newStatus === 1 ? '上线' : '下线') + '吗？', { icon: 3, title: '提示' }, function (index) {
+            $.post('/update/toggle', { id: data.id, status: newStatus }, function (res) {
+                if (res.code === 0) { layer.close(index); layer.msg(res.msg, { icon: 1 }); updateTable.reload(); }
+                else { layer.msg(res.msg, { icon: 2 }); }
+            }, 'json');
+        });
+    }
+
+    // 删除
+    function deleteItem(data) {
+        layer.confirm('确定删除【' + data.version + '】这条版本推送吗？', { icon: 3, title: '删除确认' }, function (index) {
+            $.post('/update/delete', { id: data.id }, function (res) {
+                if (res.code === 0) { layer.close(index); layer.msg(res.msg, { icon: 1 }); updateTable.reload(); }
+                else { layer.msg(res.msg, { icon: 2 }); }
+            }, 'json');
+        });
+    }
+
+    // 新增/编辑表单
+    function openForm(type, data) {
+        var isEdit = type === 'edit';
+        layer.open({
+            type: 1,
+            title: isEdit ? '编辑版本推送' : '新增版本推送',
+            area: ['540px', 'auto'],
+            content: formHtml(isEdit, data),
+            success: function (layero) {
+                form.render();
+                if (isEdit) {
+                    form.val('updateForm', {
+                        platform: data.platform,
+                        version: data.version,
+                        title: data.title,
+                        message: data.message,
+                        download_url: data.download_url,
+                        mandatory: data.mandatory == 1 ? 'on' : undefined,
+                        status: data.status == 1 ? 'on' : undefined
+                    });
+                    form.render();
+                }
+            }
+        });
+    }
+
+    function formHtml(isEdit, data) {
+        return '' +
+        '<form class="layui-form" id="updateForm" lay-filter="updateForm" style="padding:20px 25px 5px;">' +
+            (isEdit ? '<input type="hidden" name="id" value="' + data.id + '">' : '') +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">平台</label>' +
+                '<div class="layui-input-block">' +
+                    '<select name="platform" lay-verify="required">' +
+                        '<option value="">请选择平台</option>' +
+                        '<option value="win">Windows（上传安装包）</option>' +
+                        '<option value="mac">macOS（推送 App Store 地址）</option>' +
+                        '<option value="ios">iOS（推送 App Store 地址）</option>' +
+                        '<option value="android">Android（上传安装包）</option>' +
+                    '</select>' +
+                '</div>' +
+            '</div>' +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">版本号</label>' +
+                '<div class="layui-input-block"><input type="text" name="version" placeholder="如 0.2.0" lay-verify="required" autocomplete="off" class="layui-input"></div>' +
+            '</div>' +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">标题</label>' +
+                '<div class="layui-input-block"><input type="text" name="title" placeholder="通知标题" lay-verify="required" autocomplete="off" class="layui-input"></div>' +
+            '</div>' +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">更新说明</label>' +
+                '<div class="layui-input-block"><textarea name="message" placeholder="本次更新内容" class="layui-textarea"></textarea></div>' +
+            '</div>' +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">下载地址</label>' +
+                '<div class="layui-input-block">' +
+                    '<input type="text" name="download_url" placeholder="https://..." lay-verify="required" autocomplete="off" class="layui-input">' +
+                    '<div class="form-tip">Windows/Android：安装包下载链接；iOS/macOS：App Store 链接</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">强制更新</label>' +
+                '<div class="layui-input-block"><input type="checkbox" name="mandatory" value="on" lay-skin="switch" lay-text="强制|可选"></div>' +
+            '</div>' +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">状态</label>' +
+                '<div class="layui-input-block"><input type="checkbox" name="status" value="on" lay-skin="switch" lay-text="上线|下线" checked></div>' +
+            '</div>' +
+            '<div class="layui-form-item" style="text-align:right;padding-right:25px;">' +
+                '<button class="layui-btn" lay-submit lay-filter="submitUpdate">确定</button>' +
+                '<button type="button" class="layui-btn layui-btn-primary" id="btnCancel">取消</button>' +
+            '</div>' +
+        '</form>';
+    }
+
+    // 提交
+    form.on('submit(submitUpdate)', function (data) {
+        var formData = {
+            platform: data.field.platform,
+            version: data.field.version,
+            title: data.field.title,
+            message: data.field.message || '',
+            download_url: data.field.download_url,
+            mandatory: data.field.mandatory === 'on' ? 1 : 0,
+            status: data.field.status === 'on' ? 1 : 0
+        };
+        // 通过隐藏域 id 判断编辑/新增
+        var editId = $('input[name="id"]').val();
+        var url = editId ? '/update/edit' : '/update/add';
+        if (editId) formData.id = editId;
+        $.post(url, formData, function (res) {
+            if (res.code === 0) { layer.closeAll(); layer.msg(res.msg, { icon: 1 }); updateTable.reload(); }
+            else { layer.msg(res.msg, { icon: 2 }); }
+        }, 'json');
+        return false;
+    });
+
+    $(document).on('click', '#btnCancel', function () { layer.closeAll(); });
+});
+</script>
+{/block}

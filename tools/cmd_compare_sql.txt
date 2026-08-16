@@ -1,0 +1,13 @@
+#!/bin/bash
+# 对比服务器和本地 SQL 文件的关键字段（通过服务器端脚本打印表结构）
+cd /www/wwwroot/acgo/sql
+echo "=== user.sql 关键字段 ==="
+grep -E "password_changed|phone|nickname|username" user.sql
+echo "=== user_device.sql 关键字段 ==="
+grep -E "online_status|last_online_time" user_device.sql
+echo "=== post.sql 表清单 ==="
+grep -E "CREATE TABLE|post_favorite|comment_like" post.sql
+echo "=== recharge.sql phone 字段 ==="
+grep -E "phone" recharge.sql
+echo "=== 文件时间戳对比 ==="
+ls -la --time-style=full-iso *.sql

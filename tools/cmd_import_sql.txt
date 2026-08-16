@@ -1,0 +1,13 @@
+#!/bin/bash
+# 按依赖顺序导入 SQL 建表脚本（跳过 seed_test_data.sql）
+cd /www/wwwroot/acgo/sql
+MYSQL_ROOT_PASS="3cef5e649f3caffb"
+for f in init.sql user.sql user_device.sql verify_code.sql post.sql sticker.sql notification.sql push_queue.sql recharge.sql update.sql menu.sql; do
+  echo "===== 导入 $f ====="
+  mysql -uroot -p"$MYSQL_ROOT_PASS" acgo < "$f" 2>&1 | grep -v "Using a password" || true
+  echo "exit=$?"
+done
+echo "===== 验证表数量 ====="
+mysql -uacgo -p'Y6PZGFyAEpHLtjs2' acgo -e "SHOW TABLES;" 2>&1 | grep -v "Using a password"
+echo "===== 表总数 ====="
+mysql -uacgo -p'Y6PZGFyAEpHLtjs2' acgo -e "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema='acgo';" 2>&1 | grep -v "Using a password"

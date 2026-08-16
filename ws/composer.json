@@ -1,0 +1,15 @@
+{
+    "name": "acgo/ws",
+    "description": "ACGO 实时推送服务（Swoole WebSocket Server）",
+    "type": "project",
+    "require": {
+        "php": ">=8.0",
+        "ext-swoole": "*",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist"
+    }
+}

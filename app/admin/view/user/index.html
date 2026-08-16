@@ -1,0 +1,360 @@
+{extend name="layout" /}
+
+{block name="title"}用户管理{/block}
+
+{block name="content"}
+<div class="page-search">
+    <form class="layui-form" lay-filter="searchForm">
+        <div class="layui-inline">
+            <input type="text" name="keyword" placeholder="账号/昵称/手机号" autocomplete="off" class="layui-input" style="width:220px;">
+        </div>
+        <div class="layui-inline">
+            <select name="status" title="状态筛选">
+                <option value="">全部状态</option>
+                <option value="1">正常</option>
+                <option value="2">已封禁</option>
+                <option value="0">已注销</option>
+            </select>
+        </div>
+        <div class="layui-inline">
+            <button type="button" class="layui-btn search-btn" lay-submit lay-filter="search" title="搜索"><i class="fas fa-search"></i></button>
+        </div>
+    </form>
+</div>
+
+<div class="page-content">
+    <table id="userTable" lay-filter="userTable"></table>
+</div>
+
+<script type="text/html" id="userToolbar">
+    <div class="layui-btn-container">
+        <button class="layui-btn layui-btn-sm page-btn" lay-event="add">创建用户</button>
+        <button class="layui-btn layui-btn-sm page-btn" lay-event="refresh">刷新</button>
+    </div>
+</script>
+<script type="text/html" id="barTpl">
+    <button type="button" class="layui-btn layui-btn-xs op-btn" lay-event="ops" data-id="{{ d.id }}"><i class="fas fa-wrench"></i></button>
+</script>
+
+<script type="text/html" id="statusTpl">
+    {{# if(d.status == 1){ }}
+        <span class="badge badge-green">{{ d.status_text }}</span>
+    {{# } else if(d.status == 2){ }}
+        <span class="badge badge-red">{{ d.status_text }}</span>
+    {{# } else { }}
+        <span class="badge badge-gray">{{ d.status_text }}</span>
+    {{# } }}
+</script>
+
+<script type="text/html" id="avatarTpl">
+    <img src="{{ d.avatar || '/static/admin/img/default-avatar.png' }}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;cursor:pointer;" class="avatar-preview" data-src="{{ d.avatar || '/static/admin/img/default-avatar.png' }}">
+</script>
+<script type="text/html" id="onlineTpl">
+    {{# if(d.online == 1){ }}
+        <span class="badge badge-green" title="长连接在线">● 在线</span>
+    {{# } else { }}
+        <span class="badge badge-gray" title="未连接">○ 离线</span>
+    {{# } }}
+</script>
+{/block}
+
+{block name="script"}
+<script>
+layui.use(['table', 'form', 'layer'], function () {
+    var table  = layui.table;
+    var form   = layui.form;
+    var layer  = layui.layer;
+    var $      = layui.$;
+
+    // 初始化渲染表单组件（select 等），确保下拉正常展开
+    form.render();
+
+    // 排序状态（点击表头切换，默认按 id 正序）
+    var sortParam = { field: 'id', order: 'asc' };
+    // 当前搜索条件（与排序参数合并后传给后端）
+    var searchWhere = {};
+    function mergeQuery() {
+        var q = {};
+        Object.keys(searchWhere).forEach(function (k) { q[k] = searchWhere[k]; });
+        q.field = sortParam.field;
+        q.order = sortParam.order;
+        return q;
+    }
+
+    var userTable = table.render({
+        elem: '#userTable',
+        url: '/user/getList',
+        method: 'get',
+        toolbar: '#userToolbar',
+        defaultToolbar: ['filter', 'print', 'exports'],
+        page: true,
+        limit: 20,
+        limits: [10, 20, 50, 100],
+        autoSort: false,
+        initSort: { field: 'id', type: 'asc' },
+        cols: [[
+            { field: 'id', title: 'UID', width: 60, align: 'center', sort: true },
+            { field: 'phone', title: '手机号', minWidth: 130, sort: true },
+            { field: 'nickname', title: '昵称', minWidth: 110, sort: true },
+            { field: 'avatar', title: '头像', width: 70, align: 'center', templet: '#avatarTpl' },
+            { field: 'wallet', title: '钱包', minWidth: 120, align: 'center', templet: function (d) {
+                return '<button type="button" class="layui-btn layui-btn-xs wallet-btn" data-id="' + d.id + '" data-name="' + (d.nickname || d.phone) + '" data-wallet=\'' + JSON.stringify(d.wallet.balances) + '\'><i class="fas fa-wallet"></i> 查看</button>';
+            } },
+            { field: 'online', title: '在线', width: 90, align: 'center', templet: '#onlineTpl' },
+            { field: 'status', title: '状态', width: 100, align: 'center', templet: '#statusTpl', sort: true },
+            { field: 'register_time', title: '注册时间', minWidth: 160, sort: true },
+            { field: 'last_login_time', title: '最后登录', minWidth: 160, sort: true },
+            { field: 'last_login_ip', title: '最后IP', minWidth: 120 },
+            { title: '操作', width: 90, toolbar: '#barTpl', fixed: 'right', align: 'center' }
+        ]],
+        skin: 'line',
+        even: true,
+        text: { none: '暂无数据' }
+    });
+
+    form.on('submit(search)', function (data) {
+        searchWhere = data.field || {};
+        userTable.reload({ where: mergeQuery(), page: { curr: 1 } });
+        return false;
+    });
+
+    // 表头排序：提交 field/order 给后端
+    table.on('sort(userTable)', function (obj) {
+        sortParam.field = obj.field || 'id';
+        sortParam.order = obj.type || 'asc';
+        userTable.reload({
+            initSort: obj,
+            where: mergeQuery(),
+            page: { curr: 1 }
+        });
+    });
+
+    // 工具栏事件（新增、刷新 + Layui 原生导出/打印）
+    table.on('toolbar(userTable)', function (obj) {
+        if (obj.event === 'add') openForm('add');
+        if (obj.event === 'refresh') userTable.reload();
+        // 自定义导出：只导出关键列（排除头像、操作列）
+        if (obj.event === 'LAY_TABLE_EXPORT' || obj.event === 'exports') {
+            var exportData = [];
+            table.getData('userTable', true).forEach(function (r) {
+                var w = r.wallet && r.wallet.balances ? r.wallet.balances : {};
+                exportData.push({
+                    'UID': r.id,
+                    '手机号': r.phone,
+                    '昵称': r.nickname,
+                    '钱包余额': '¥ ' + (w.cny || '0.00') + ' / 熊爪 ' + (w.paw || '0'),
+                    '在线': (r.online == 1 ? '在线' : '离线'),
+                    '状态': r.status_text,
+                    '注册时间': r.register_time,
+                    '最后登录': r.last_login_time,
+                    '最后IP': r.last_login_ip
+                });
+            });
+            table.exportFile('userTable', exportData, 'xlsx');
+            return false; // 阻止默认导出
+        }
+    });
+
+    // 头像点击放大（轻量 layer.photos）
+    $(document).on('click', '.avatar-preview', function (e) {
+        e.stopPropagation();
+        var src = $(this).attr('data-src') || $(this).attr('src');
+        layer.photos({
+            photos: {
+                title: '',
+                id: Date.now(),
+                start: 0,
+                data: [{ alt: '', pid: 0, src: src, thumb: src }]
+            },
+            shade: 0.6,
+            shadeClose: true,
+            anim: 1,
+            closeBtn: 1
+        });
+    });
+
+    // 钱包按钮点击：弹出钱包余额弹窗（显示所有币种）
+    $(document).on('click', '.wallet-btn', function (e) {
+        e.stopPropagation();
+        var name = $(this).attr('data-name') || '用户';
+        var balances = $(this).attr('data-wallet');
+        try { balances = JSON.parse(balances); } catch (err) { balances = {}; }
+        var currencies = [
+            { key: 'cny', name: '人民币', symbol: '¥',  color: '#FF3B30' },
+            { key: 'paw', name: '熊爪',   symbol: '熊爪', color: '#FF9F0A' }
+        ];
+        var html = '<div class="wallet-layer">';
+        for (var i = 0; i < currencies.length; i++) {
+            var c = currencies[i];
+            var raw = balances[c.key] || '0.00';
+            var val = c.key === 'paw' ? String(parseFloat(raw)) : raw; // 熊爪显示整数
+            html += '<div class="wallet-item">' +
+                '<span class="wallet-currency" style="background:' + c.color + ';">' + c.name + '</span>' +
+                '<span class="wallet-balance">' + c.symbol + ' ' + val + '</span>' +
+                '</div>';
+        }
+        html += '</div>';
+        layer.open({
+            type: 1,
+            title: name + ' 的钱包余额',
+            area: ['320px', 'auto'],
+            content: html,
+            closeBtn: 1,
+            shade: 0.3,
+            shadeClose: true
+        });
+    });
+
+    // 操作列：点击省略按钮 → 用 Layui 原生 layer 弹窗展示操作菜单
+    table.on('tool(userTable)', function (obj) {
+        var data = obj.data;
+        if (obj.event === 'ops') {
+            var btns = '';
+            btns += '<button type="button" class="op-act-btn" data-ev="edit"><i class="fas fa-edit"></i> 编辑</button>';
+            if (data.status === 1) {
+                btns += '<button type="button" class="op-act-btn warn" data-ev="ban"><i class="fas fa-ban"></i> 封禁</button>';
+            } else if (data.status === 2) {
+                btns += '<button type="button" class="op-act-btn" data-ev="unban"><i class="fas fa-check-circle"></i> 解封</button>';
+            }
+            if (data.status !== 0) {
+                btns += '<button type="button" class="op-act-btn danger" data-ev="del"><i class="fas fa-user-slash"></i> 注销</button>';
+            }
+            // 操作对象提示（优先昵称，无则手机号）
+            var targetName = data.nickname || data.phone;
+            var html = '<div class="op-layer-target"><i class="fas fa-user"></i> 操作对象：<b>' + targetName + '</b></div>' +
+                       '<div class="op-layer-body">' + btns + '</div>';
+            var opsLayer = layer.open({
+                type: 1,
+                title: '操作',
+                area: ['280px', 'auto'],
+                content: html,
+                closeBtn: 1,
+                shade: 0.3,
+                shadeClose: true
+            });
+            // 操作按钮点击（事件委托到弹窗内容）
+            $('.op-layer-body button').off('click').on('click', function () {
+                var ev = $(this).attr('data-ev');
+                layer.close(opsLayer);
+                if (ev === 'edit') openForm('edit', data);
+                else if (ev === 'ban') banUser(data);
+                else if (ev === 'unban') unbanUser(data);
+                else if (ev === 'del') deleteUser(data);
+            });
+        }
+    });
+
+    function openForm(type, data) {
+        var isEdit = type === 'edit';
+        // 编辑时顶部显示操作对象提示（优先昵称，无则手机号）
+        var target = isEdit ? '<div class="op-layer-target"><i class="fas fa-user"></i> 操作对象：<b>' + (data.nickname || data.phone) + '</b></div>' : '';
+        layer.open({
+            type: 1,
+            title: isEdit ? '编辑用户' : '创建用户',
+            area: ['auto', 'auto'],
+            content: target + formHtml(isEdit),
+            success: function (layero) {
+                form.render();
+                if (isEdit) {
+                    $('#frmId').val(data.id);
+                    $('#frmNickname').val(data.nickname);
+                    $('#frmPhone').val(data.phone).prop('disabled', true);
+                }
+            }
+        });
+    }
+
+    function formHtml(isEdit) {
+        return '' +
+        '<form class="layui-form" id="userForm" style="padding:20px 25px 5px;">' +
+            (isEdit ? '<input type="hidden" id="frmId" name="id" value="">' : '') +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">昵称</label>' +
+                '<div class="layui-input-block"><input type="text" id="frmNickname" name="nickname" placeholder="昵称" lay-verify="required" autocomplete="off" class="layui-input"></div>' +
+            '</div>' +
+            (isEdit ? '' :
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">密码</label>' +
+                '<div class="layui-input-block"><input type="password" id="frmPassword" name="password" placeholder="初始密码(至少6位)" lay-verify="required" autocomplete="off" class="layui-input"></div>' +
+            '</div>') +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">手机号</label>' +
+                '<div class="layui-input-block"><input type="text" id="frmPhone" name="phone" placeholder="请输入手机号" lay-verify="required|phone" autocomplete="off" class="layui-input"></div>' +
+            '</div>' +
+            '<div class="layui-form-item" style="text-align:right;padding-right:25px;">' +
+                '<button class="layui-btn" lay-submit lay-filter="submitUser">确定</button>' +
+                '<button type="button" class="layui-btn layui-btn-primary" id="btnCancel">取消</button>' +
+            '</div>' +
+        '</form>';
+    }
+
+    form.on('submit(submitUser)', function (data) {
+        var formData = data.field;
+        // 编辑态：手机号被禁用作为只读标识
+        var isEdit = !!$('#frmPhone').prop('disabled');
+        $.post(isEdit ? '/user/edit' : '/user/add', formData, function (res) {
+            if (res.code === 0) { layer.closeAll(); layer.msg(res.msg, { icon: 1 }); userTable.reload(); }
+            else { layer.msg(res.msg, { icon: 2 }); }
+        }, 'json');
+        return false;
+    });
+
+    $(document).on('click', '#btnCancel', function () { layer.closeAll(); });
+
+    function banUser(data) {
+        layer.prompt({
+            title: '封禁用户【' + (data.nickname || data.phone) + '】，请输入封禁原因：',
+            formType: 2, maxlength: 100
+        }, function (val, index) {
+            $.post('/user/ban', { id: data.id, reason: val }, function (res) {
+                if (res.code === 0) { layer.close(index); layer.msg(res.msg, { icon: 1 }); userTable.reload(); }
+                else { layer.msg(res.msg, { icon: 2 }); }
+            }, 'json');
+        });
+    }
+
+    function unbanUser(data) {
+        layer.confirm('确定解封用户【' + (data.nickname || data.phone) + '】吗？', { icon: 3, title: '解封确认' }, function (index) {
+            $.post('/user/unban', { id: data.id }, function (res) {
+                if (res.code === 0) { layer.close(index); layer.msg(res.msg, { icon: 1 }); userTable.reload(); }
+                else { layer.msg(res.msg, { icon: 2 }); }
+            }, 'json');
+        });
+    }
+
+    function deleteUser(data) {
+        // 注销需要输入管理员密码确认
+        layer.open({
+            type: 1,
+            title: '注销用户【' + (data.nickname || data.phone) + '】',
+            area: ['420px', 'auto'],
+            content: '' +
+            '<div style="padding:25px 30px;">' +
+                '<p style="color:#f56c6c;margin-bottom:15px;"><i class="fas fa-exclamation-triangle"></i> 注销后该用户将无法登录，此操作不可恢复！</p>' +
+                '<div class="layui-form-item">' +
+                    '<label class="layui-form-label">管理员密码</label>' +
+                    '<div class="layui-input-block">' +
+                        '<input type="password" id="adminPwd" placeholder="请输入管理员密码确认" autocomplete="off" class="layui-input">' +
+                    '</div>' +
+                '</div>' +
+                '<div style="text-align:right;padding-top:10px;">' +
+                    '<button class="layui-btn layui-btn-danger" id="confirmDel"><i class="fas fa-user-slash"></i> 确认注销</button>' +
+                    '<button class="layui-btn layui-btn-primary" id="cancelDel">取消</button>' +
+                '</div>' +
+            '</div>',
+            success: function (layero) {
+                layero.find('#confirmDel').on('click', function () {
+                    var pwd = layero.find('#adminPwd').val();
+                    if (!pwd) { layer.msg('请输入管理员密码', { icon: 2 }); return; }
+                    $.post('/user/delete', { id: data.id, admin_password: pwd }, function (res) {
+                        if (res.code === 0) { layer.closeAll(); layer.msg(res.msg, { icon: 1 }); userTable.reload(); }
+                        else { layer.msg(res.msg, { icon: 2 }); }
+                    }, 'json');
+                });
+                layero.find('#cancelDel').on('click', function () { layer.closeAll(); });
+            }
+        });
+    }
+});
+</script>
+{/block}

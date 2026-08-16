@@ -1,0 +1,15 @@
+#!/bin/bash
+# 创建 acgo 数据库和用户（按 .env 配置）
+MYSQL_ROOT_PASS="3cef5e649f3caffb"
+mysql -uroot -p"$MYSQL_ROOT_PASS" <<'SQL' 2>&1
+CREATE DATABASE IF NOT EXISTS `acgo` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+CREATE USER IF NOT EXISTS 'acgo'@'localhost' IDENTIFIED BY 'Y6PZGFyAEpHLtjs2';
+CREATE USER IF NOT EXISTS 'acgo'@'127.0.0.1' IDENTIFIED BY 'Y6PZGFyAEpHLtjs2';
+GRANT ALL PRIVILEGES ON `acgo`.* TO 'acgo'@'localhost';
+GRANT ALL PRIVILEGES ON `acgo`.* TO 'acgo'@'127.0.0.1';
+FLUSH PRIVILEGES;
+SQL
+echo "---验证 acgo 用户连接---"
+mysql -uacgo -p'Y6PZGFyAEpHLtjs2' acgo -e "SELECT '连接成功' AS status;" 2>&1
+echo "---服务器 SQL 文件列表---"
+ls -la /www/wwwroot/acgo/sql/

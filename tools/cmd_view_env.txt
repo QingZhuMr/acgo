@@ -1,0 +1,1 @@
+cat /www/wwwroot/acgo/.env

@@ -1,0 +1,337 @@
+{extend name="layout" /}
+
+{block name="title"}举报处理{/block}
+
+{block name="style"}
+<style>
+    .report-target { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .report-target .tt-tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-right: 4px; }
+    .tt-post { background: rgba(64,158,255,.12); color: var(--primary); }
+    .tt-comment { background: rgba(255,149,0,.14); color: #e6a23c; }
+    .report-reason { font-size: 12px; color: var(--text-body); background: var(--bg-hover); border-radius: 6px; padding: 2px 8px; display: inline-block; }
+    /* 被举报内容预览（复用广场帖子预览样式） */
+    .post-preview { padding: 20px 24px 24px; max-height: 80vh; overflow-y: auto; }
+    .post-preview .pp-head { display: flex; align-items: center; margin-bottom: 14px; }
+    .post-preview .pp-head img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; margin-right: 12px; flex-shrink: 0; }
+    .post-preview .pp-head .pp-name { font-size: 15px; font-weight: 600; color: var(--text); }
+    .post-preview .pp-head .pp-meta { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
+    .post-preview .pp-content { font-size: 14px; line-height: 1.7; color: var(--text-body); word-break: break-word; white-space: pre-wrap; }
+    .post-preview .pp-content img, .comment-item .c-text img { max-width: 60px; max-height: 60px; border-radius: 4px; }
+    .post-preview .pp-images { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .post-preview .pp-images img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 1px solid var(--border-light); }
+    .post-preview .pp-stats { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .post-preview .pp-stats .stat-tag { font-size: 12px; color: var(--text-body); background: var(--bg-hover); border-radius: 6px; padding: 3px 10px; }
+    .post-preview .pp-stats .stat-tag b { color: var(--text); margin-left: 3px; }
+    .post-preview .pp-comments { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+    .post-preview .pp-comments .pp-comment-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+    .post-preview .pp-comments .comment-item { display: flex; padding: 8px 0; border-bottom: 1px solid var(--border-light); }
+    .post-preview .pp-comments .comment-item:last-child { border-bottom: none; }
+    .post-preview .pp-comments .comment-item img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; margin-right: 10px; flex-shrink: 0; }
+    .post-preview .pp-comments .comment-item .c-body { flex: 1; overflow: hidden; }
+    .post-preview .pp-comments .comment-item .c-name { font-size: 13px; color: var(--text); font-weight: 500; }
+    .post-preview .pp-comments .comment-item .c-name .c-reply { color: var(--primary, #409EFF); margin: 0 2px; }
+    .post-preview .pp-comments .comment-item .c-text { font-size: 13px; color: var(--text-body); margin-top: 3px; word-break: break-word; }
+    .post-preview .pp-comments .comment-item .c-time { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+    .post-preview .pp-comments .comment-item.child { padding-left: 20px; }
+    .post-preview .pp-comments .comment-empty { text-align: center; color: var(--text-faint); font-size: 13px; padding: 20px 0; }
+    .comment-del { color: var(--danger); font-weight: 500; margin-left: 4px; }
+    .pp-img-layer { text-align: center; }
+    .pp-img-layer img { max-width: 100%; max-height: 80vh; border-radius: 6px; }
+</style>
+{/block}
+
+{block name="content"}
+<div class="page-search">
+    <form class="layui-form" lay-filter="searchForm">
+        <div class="layui-inline">
+            <input type="text" name="keyword" placeholder="搜索举报人/说明" autocomplete="off" class="layui-input" style="width:220px;">
+        </div>
+        <div class="layui-inline">
+            <select name="status" title="状态筛选">
+                <option value="">全部状态</option>
+                <option value="0">待处理</option>
+                <option value="1">已处理</option>
+                <option value="2">已删除</option>
+            </select>
+        </div>
+        <div class="layui-inline">
+            <button type="button" class="layui-btn search-btn" lay-submit lay-filter="search" title="搜索"><i class="fas fa-search"></i></button>
+        </div>
+    </form>
+</div>
+<div class="page-content">
+    <table id="reportTable" lay-filter="reportTable"></table>
+</div>
+
+<script type="text/html" id="barTpl">
+    {{# if(d.status === 0){ }}
+    <button type="button" class="layui-btn layui-btn-xs op-btn" lay-event="ops" data-id="{{ d.id }}"><i class="fas fa-wrench"></i></button>
+    {{# } }}
+</script>
+{/block}
+
+{block name="script"}
+<script>
+layui.use(['table', 'form', 'layer'], function () {
+    var table = layui.table;
+    var form  = layui.form;
+    var layer = layui.layer;
+    var $     = layui.$;
+
+    form.render();
+
+    var searchWhere = {};
+    function mergeQuery() { return Object.assign({}, searchWhere); }
+
+    var reportTable = table.render({
+        elem: '#reportTable',
+        url: '/report/getList',
+        method: 'get',
+        page: true,
+        limit: 20,
+        limits: [10, 20, 50, 100],
+        defaultToolbar: ['filter', 'print', 'exports'],
+        cols: [[
+            { field: 'id', title: 'ID', width: 70, align: 'center' },
+            { field: 'reporter_nickname', title: '举报人', width: 110, align: 'center' },
+            { field: 'reason_text', title: '原因', width: 90, align: 'center',
+              templet: function (d) { return '<span class="report-reason">' + d.reason_text + '</span>'; }
+            },
+            { field: 'post_type', title: '对象', width: 80, align: 'center',
+              templet: function (d) {
+                  return d.post_type === 'comment'
+                      ? '<span class="tt-tag tt-comment">评论</span>'
+                      : '<span class="tt-tag tt-post">帖子</span>';
+              }
+            },
+            { title: '被举报对象', minWidth: 200,
+              templet: function (d) {
+                  return '<div class="report-target"><b style="color:var(--text);">' + d.target_nickname + '</b>：' +
+                      (d.target_content ? d.target_content : '(无内容)') + '</div>';
+              }
+            },
+            { field: 'content_preview', title: '举报说明', minWidth: 160 },
+            { field: 'status', title: '状态', width: 90, align: 'center',
+              templet: function (d) { return '<span class="badge ' + d.status_badge + '">' + d.status_text + '</span>'; }
+            },
+            { field: 'create_time_text', title: '举报时间', minWidth: 160 },
+            { field: 'handler_name', title: '处理人', width: 110, align: 'center' },
+            { field: 'handle_time_text', title: '处理时间', minWidth: 160 },
+            { title: '操作', width: 90, toolbar: '#barTpl', fixed: 'right', align: 'center' }
+        ]]
+    });
+
+    // 搜索
+    form.on('submit(search)', function (data) {
+        searchWhere = data.field || {};
+        reportTable.reload({ where: mergeQuery(), page: { curr: 1 } });
+        return false;
+    });
+
+    // 导出
+    table.on('toolbar(reportTable)', function (obj) {
+        if (obj.event === 'LAY_TABLE_EXPORT' || obj.event === 'exports') {
+            var exportData = [];
+            table.getData('reportTable', true).forEach(function (r) {
+                exportData.push({
+                    'ID': r.id,
+                    '举报人': r.reporter_nickname,
+                    '原因': r.reason_text,
+                    '对象类型': r.post_type === 'comment' ? '评论' : '帖子',
+                    '被举报人': r.target_nickname,
+                    '被举报内容': r.target_content,
+                    '举报说明': r.content_preview,
+                    '状态': r.status_text,
+                    '举报时间': r.create_time_text,
+                    '处理人': r.handler_name,
+                    '处理时间': r.handle_time_text
+                });
+            });
+            table.exportFile('reportTable', exportData, 'xlsx');
+            return false;
+        }
+    });
+
+    // 行操作：处理工单
+    table.on('tool(reportTable)', function (obj) {
+        var data = obj.data;
+        if (obj.event === 'ops') {
+            var btns = '';
+            btns += '<button type="button" class="op-act-btn" data-ev="preview"><i class="fas fa-eye"></i> 预览被举报内容</button>';
+            btns += '<button type="button" class="op-act-btn" data-ev="ignore"><i class="fas fa-check"></i> 忽略（标记已处理）</button>';
+            btns += '<button type="button" class="op-act-btn danger" data-ev="del"><i class="fas fa-trash"></i> 删除违规内容</button>';
+            var html = '<div class="op-layer-target"><i class="fas fa-flag"></i> 举报工单 #' + data.id +
+                       '（' + (data.post_type === 'comment' ? '评论' : '帖子') + '）</div>' +
+                       '<div class="op-layer-body">' + btns + '</div>';
+            var opsLayer = layer.open({
+                type: 1,
+                title: '处理举报',
+                area: ['320px', 'auto'],
+                content: html,
+                closeBtn: 1,
+                shade: 0.3,
+                shadeClose: true
+            });
+            $('.op-layer-body button').off('click').on('click', function () {
+                var ev = $(this).attr('data-ev');
+                layer.close(opsLayer);
+                if (ev === 'preview') openPreview(data.post_id, data.comment_id, data.post_type);
+                else if (ev === 'ignore') openHandle(data.id, 'ignore');
+                else if (ev === 'del') openHandle(data.id, 'delete');
+            });
+        }
+    });
+
+    // ===== 预览被举报内容（复用后台帖子预览，含评论与表情包） =====
+    function openPreview(postId, commentId, postType) {
+        var idx = layer.load(1);
+        $.get('/post/detail', { post_id: postId }, function (res) {
+            layer.close(idx);
+            if (res.code !== 0) { layer.msg(res.msg, { icon: 2 }); return; }
+            var post = res.data.post;
+            var comments = res.data.comments;
+
+            var imgsHtml = '';
+            if (post.images && post.images.length > 0) {
+                imgsHtml += '<div class="pp-images">';
+                post.images.forEach(function (src) {
+                    imgsHtml += '<img src="' + src + '" data-src="' + src + '">';
+                });
+                imgsHtml += '</div>';
+            }
+
+            var commentHtml = '';
+            if (comments.length === 0) {
+                commentHtml = '<div class="comment-empty">暂无评论</div>';
+            } else {
+                comments.forEach(function (c) {
+                    var isTarget = String(c.id) === String(commentId);
+                    commentHtml += '<div class="comment-item"' + (isTarget ? ' style="background:rgba(255,59,48,0.08);border-radius:8px;padding:8px;"' : '') + '>' +
+                        '<img src="' + c.avatar + '">' +
+                        '<div class="c-body">' +
+                            '<div class="c-name">' + c.nickname +
+                                (isTarget ? '<span class="comment-del">[被举报]</span>' : '') +
+                                (c.status_text !== '正常' ? '<span class="comment-del">[' + c.status_text + ']</span>' : '') +
+                            '</div>' +
+                            '<div class="c-text">' + (c.content_html || c.content) + '</div>' +
+                            '<div class="c-time">' + c.create_time_text + '</div>' +
+                        '</div></div>';
+                    (c.children || []).forEach(function (cc) {
+                        var isChildTarget = String(cc.id) === String(commentId);
+                        commentHtml += '<div class="comment-item child"' + (isChildTarget ? ' style="background:rgba(255,59,48,0.08);border-radius:8px;padding:8px;"' : '') + '>' +
+                            '<img src="' + cc.avatar + '">' +
+                            '<div class="c-body">' +
+                                '<div class="c-name">' + cc.nickname +
+                                    (isChildTarget ? '<span class="comment-del">[被举报]</span>' : '') +
+                                    '<span class="c-reply">回复 ' + cc.reply_to_name + '</span>' +
+                                    (cc.status_text !== '正常' ? '<span class="comment-del">[' + cc.status_text + ']</span>' : '') +
+                                '</div>' +
+                                '<div class="c-text">' + (cc.content_html || cc.content) + '</div>' +
+                                '<div class="c-time">' + cc.create_time_text + '</div>' +
+                            '</div></div>';
+                    });
+                });
+            }
+
+            var html = '<div class="post-preview">' +
+                '<div class="pp-head">' +
+                    '<img src="' + post.avatar + '">' +
+                    '<div>' +
+                        '<div class="pp-name">' + post.nickname + ' <span style="font-size:12px;color:var(--text-faint);font-weight:400;">UID:' + post.user_id + '</span></div>' +
+                        '<div class="pp-meta">' + post.create_time_text + '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="pp-content">' + (post.content_html || post.content) + '</div>' +
+                imgsHtml +
+                '<div class="pp-stats">' +
+                    '<span class="stat-tag">热度<b>' + post.heat + '</b></span>' +
+                    '<span class="stat-tag">评论<b>' + post.comment_count + '</b></span>' +
+                    '<span class="stat-tag">点赞<b>' + post.like_count + '</b></span>' +
+                    '<span class="stat-tag">举报<b>' + post.report_count + '</b></span>' +
+                    '<span class="stat-tag">状态<b>' + post.status_text + '</b></span>' +
+                '</div>' +
+                '<div class="pp-comments">' +
+                    '<div class="pp-comment-title">评论（共 ' + comments.length + ' 条顶层）</div>' +
+                    commentHtml +
+                '</div>' +
+            '</div>';
+
+            layer.open({
+                type: 1,
+                title: '被举报内容预览 #' + post.id,
+                area: ['760px', 'auto'],
+                content: html,
+                closeBtn: 1,
+                shade: 0.4,
+                shadeClose: true,
+                success: function (layero) {
+                    layero.find('.pp-images img').on('click', function () {
+                        var src = $(this).attr('data-src');
+                        layer.open({
+                            type: 1,
+                            title: false,
+                            area: 'auto',
+                            shadeClose: true,
+                            shade: 0.8,
+                            content: '<div class="pp-img-layer"><img src="' + src + '"></div>'
+                        });
+                    });
+                }
+            });
+        }, 'json');
+    }
+
+    // 处理工单（选处理方式 + 备注 + 删除时需密码）
+    function openHandle(reportId, action) {
+        var isDel = action === 'delete';
+        var title = isDel ? '删除违规内容' : '忽略举报';
+        var warn = isDel
+            ? '<div style="font-size:13px;color:var(--danger);margin-bottom:12px;">将软删除被举报内容，删除后用户端将不可见。此操作不可撤销。</div>'
+            : '<div style="font-size:13px;color:var(--text-faint);margin-bottom:12px;">标记该举报为已处理，被举报内容保留。</div>';
+        var pwdHtml = isDel
+            ? '<div style="font-size:13px;color:var(--text-body);margin-bottom:8px;">请输入管理员密码确认操作：</div>' +
+              '<input type="password" id="handlePwd" placeholder="管理员密码" class="layui-input">'
+            : '';
+        layer.open({
+            type: 1,
+            title: title,
+            area: ['440px', 'auto'],
+            shade: 0.4,
+            shadeClose: false,
+            content: '<div style="padding:24px;">' +
+                warn +
+                pwdHtml +
+                (isDel ? '<div style="height:12px;"></div>' : '') +
+                '<div style="font-size:13px;color:var(--text-body);margin-bottom:8px;">处理备注（选填）：</div>' +
+                '<textarea id="handleRemark" rows="3" placeholder="填写处理说明" class="layui-textarea" maxlength="255"></textarea>' +
+                '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">' +
+                    '<button type="button" class="layui-btn layui-btn-primary" id="handleCancel">取消</button>' +
+                    '<button type="button" class="layui-btn ' + (isDel ? 'layui-btn-danger' : '') + '" id="handleSubmit">确认</button>' +
+                '</div>' +
+            '</div>',
+            success: function (layero) {
+                layero.find('#handleCancel').on('click', function () { layer.closeAll(); });
+                layero.find('#handleSubmit').on('click', function () {
+                    var remark = layero.find('#handleRemark').val() || '';
+                    var postData = { report_id: reportId, action: action, remark: remark };
+                    if (isDel) {
+                        var pwd = layero.find('#handlePwd').val();
+                        if (pwd === '') { layer.msg('请输入管理员密码', { icon: 2 }); return; }
+                        postData.admin_password = pwd;
+                    }
+                    $.post('/report/handle', postData, function (res) {
+                        if (res.code === 0) {
+                            layer.closeAll();
+                            layer.msg(res.msg, { icon: 1 });
+                            reportTable.reload();
+                        } else {
+                            layer.msg(res.msg, { icon: 2 });
+                        }
+                    }, 'json');
+                });
+            }
+        });
+    }
+});
+</script>
+{/block}

@@ -1,0 +1,157 @@
+{extend name="layout" /}
+
+{block name="title"}用户日志{/block}
+
+{block name="content"}
+<div class="page-search">
+    <form class="layui-form" lay-filter="searchForm">
+        <div class="layui-inline">
+            <input type="text" name="keyword" placeholder="搜索手机号/操作者" autocomplete="off" class="layui-input" style="width:220px;">
+        </div>
+        <div class="layui-inline">
+            <select name="action" title="动作筛选">
+                <option value="">全部动作</option>
+                <option value="recharge">充值</option>
+                <option value="withdraw">提现</option>
+                <option value="change_password">修改密码</option>
+            </select>
+        </div>
+        <div class="layui-inline">
+            <button type="button" class="layui-btn search-btn" lay-submit lay-filter="search" title="搜索"><i class="fas fa-search"></i></button>
+        </div>
+    </form>
+</div>
+<div class="page-content">
+    <table id="logTable" lay-filter="logTable"></table>
+</div>
+
+<!-- 表格工具栏：清空用户日志 -->
+<script type="text/html" id="logToolbar">
+    <div class="layui-btn-container">
+        <button class="layui-btn layui-btn-sm page-btn" id="btnClearLog">清空用户日志</button>
+    </div>
+</script>
+{/block}
+
+{block name="script"}
+<script>
+layui.use(['table', 'form', 'layer'], function () {
+    var table = layui.table;
+    var form  = layui.form;
+
+    form.render();
+
+    // 排序状态（点击表头切换，默认按 id 倒序）
+    var sortParam = { field: 'id', order: 'desc' };
+    var searchWhere = {};
+    function mergeQuery() {
+        var q = {};
+        Object.keys(searchWhere).forEach(function (k) { q[k] = searchWhere[k]; });
+        q.field = sortParam.field;
+        q.order = sortParam.order;
+        return q;
+    }
+
+    var logTable = table.render({
+        elem: '#logTable',
+        url: '/log/userLogList',
+        method: 'get',
+        page: true,
+        limit: 20,
+        limits: [10, 20, 50, 100],
+        toolbar: '#logToolbar',
+        autoSort: false,
+        initSort: { field: 'id', type: 'desc' },
+        cols: [[
+            { field: 'id', title: 'ID', width: 70, align: 'center', sort: true },
+            { field: 'phone', title: '手机号', minWidth: 120, sort: true },
+            { field: 'action_text', title: '动作', width: 90, align: 'center',
+              templet: function (d) {
+                  var map = { recharge: 'badge-green', withdraw: 'badge-cyan', change_password: 'badge-warm' };
+                  return '<span class="badge ' + (map[d.action] || 'badge-blue') + '">' + d.action_text + '</span>';
+              }
+            },
+            { field: 'operator', title: '操作者', minWidth: 120, sort: true },
+            { field: 'ip', title: '操作IP', minWidth: 130, sort: true },
+            { field: 'remark', title: '备注', minWidth: 200 },
+            { field: 'create_time_text', title: '操作时间', minWidth: 160 }
+        ]]
+    });
+
+    // 搜索
+    form.on('submit(search)', function (data) {
+        searchWhere = data.field || {};
+        logTable.reload({ where: mergeQuery(), page: { curr: 1 } });
+        return false;
+    });
+
+    // 表头排序：提交 field/order 给后端
+    table.on('sort(logTable)', function (obj) {
+        sortParam.field = obj.field || 'id';
+        sortParam.order = obj.type || 'desc';
+        logTable.reload({
+            initSort: obj,
+            where: mergeQuery(),
+            page: { curr: 1 }
+        });
+    });
+
+    // ===== 清空用户日志（图形验证码） =====
+    var clearUrl = '/log/clearUserLog';
+
+    function refreshCaptcha() {
+        $('#capImg').attr('src', '/log/captcha?_t=' + Date.now());
+        $('#capInput').val('');
+    }
+
+    function openClearCaptcha() {
+        var html =
+            '<div style="padding:20px 24px 8px;">' +
+                '<div class="layui-form-item" style="margin-bottom:12px;">' +
+                    '<label style="display:block;margin-bottom:8px;color:var(--text-body);font-size:14px;">请输入图形验证码</label>' +
+                    '<div style="display:flex;align-items:center;gap:10px;">' +
+                        '<input type="text" id="capInput" placeholder="验证码" autocomplete="off" class="layui-input" style="flex:1;height:40px;">' +
+                        '<img id="capImg" src="/log/captcha" alt="验证码" title="点击刷新" style="height:40px;border-radius:8px;cursor:pointer;border:1px solid var(--border);">' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        layer.open({
+            type: 1,
+            title: '清空用户日志',
+            content: html,
+            area: ['380px', 'auto'],
+            btn: ['确认清空', '取消'],
+            success: function () {
+                refreshCaptcha();
+                $('#capImg').on('click', refreshCaptcha);
+            },
+            yes: function (index) {
+                var code = $('#capInput').val();
+                if (!code) { layer.msg('请输入验证码', { icon: 2 }); return; }
+                $.post(clearUrl, { captcha: code }, function (res) {
+                    if (res.code === 0) {
+                        layer.close(index);
+                        layer.msg(res.msg, { icon: 1 });
+                        logTable.reload({ page: { curr: 1 } });
+                    } else {
+                        layer.msg(res.msg || '清空失败', { icon: 2 });
+                        refreshCaptcha();
+                    }
+                }, 'json').fail(function () {
+                    layer.msg('网络异常，请稍后重试', { icon: 2 });
+                });
+            }
+        });
+    }
+
+    $('#btnClearLog').on('click', function () {
+        layer.confirm('确认清空全部用户日志？此操作不可恢复。', {
+            icon: 3, title: '清空提示'
+        }, function (index) {
+            layer.close(index);
+            openClearCaptcha();
+        });
+    });
+});
+</script>
+{/block}

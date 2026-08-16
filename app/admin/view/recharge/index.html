@@ -1,0 +1,362 @@
+{extend name="layout" /}
+
+{block name="title"}充值记录{/block}
+
+{block name="style"}
+<style>
+    /* 人工充值全屏弹框样式 */
+    .recharge-layer {
+        padding: 20px 24px 24px;
+    }
+    .recharge-field { margin-bottom: 18px; }
+    .recharge-label {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .recharge-label .req { color: var(--danger); }
+    .recharge-label .tip { font-size: 12px; color: var(--text-faint); font-weight: 400; }
+    /* 用户搜索结果列表 */
+    .user-search-results {
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-soft);
+    }
+    .user-search-results .user-item {
+        display: flex;
+        align-items: center;
+        padding: 9px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid var(--border-light);
+        transition: all .15s ease;
+    }
+    .user-search-results .user-item:last-child { border-bottom: none; }
+    .user-search-results .user-item:hover { background: var(--primary-faint); }
+    .user-search-results .user-item.selected { background: var(--primary-soft); }
+    .user-search-results .user-item img {
+        width: 32px; height: 32px; border-radius: 50%; object-fit: cover;
+        margin-right: 10px; flex-shrink: 0;
+    }
+    .user-search-results .user-item .u-info { flex: 1; overflow: hidden; }
+    .user-search-results .user-item .u-name { font-size: 14px; color: var(--text); font-weight: 500; }
+    .user-search-results .user-item .u-sub { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
+    .user-search-results .user-empty { padding: 20px; text-align: center; color: var(--text-faint); font-size: 13px; }
+    /* 钱包余额展示 */
+    .recharge-wallet-show {
+        margin-top: 6px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .recharge-wallet-show .w-tag {
+        font-size: 12px;
+        color: var(--text-body);
+        background: var(--bg-hover);
+        border-radius: 6px;
+        padding: 3px 8px;
+    }
+    .recharge-wallet-show .w-tag b { color: var(--text); margin-left: 4px; }
+    /* 按钮区 */
+    .recharge-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+    }
+    /* 表格中充值数量：跟随主题文字色（覆盖内联 #111827） */
+    .layui-table .recharge-amount { color: var(--text); font-weight: 600; }
+</style>
+{/block}
+
+{block name="content"}
+<div class="page-search">
+    <form class="layui-form" lay-filter="searchForm">
+        <div class="layui-inline">
+            <input type="text" name="keyword" placeholder="搜索用户/操作人" autocomplete="off" class="layui-input" style="width:220px;">
+        </div>
+        <div class="layui-inline">
+            <select name="currency" title="币种筛选">
+                <option value="">全部币种</option>
+                <option value="cny">人民币</option>
+                <option value="paw">熊爪</option>
+            </select>
+        </div>
+        <div class="layui-inline">
+            <select name="status" title="状态筛选">
+                <option value="">全部状态</option>
+                <option value="1">发起中</option>
+                <option value="2">核对中</option>
+                <option value="3">已完成</option>
+                <option value="4">已取消</option>
+            </select>
+        </div>
+        <div class="layui-inline">
+            <button type="button" class="layui-btn search-btn" lay-submit lay-filter="search" title="搜索"><i class="fas fa-search"></i></button>
+        </div>
+    </form>
+</div>
+<div class="page-content">
+    <table id="rechargeTable" lay-filter="rechargeTable"></table>
+</div>
+
+<!-- 表格工具栏：人工充值 + 默认筛选/打印/导出 -->
+<script type="text/html" id="rechargeToolbar">
+    <div class="layui-btn-container">
+        <button class="layui-btn layui-btn-sm page-btn" id="btnManualRecharge">人工充值</button>
+    </div>
+</script>
+{/block}
+
+{block name="script"}
+<script>
+layui.use(['table', 'form', 'layer'], function () {
+    var table = layui.table;
+    var form  = layui.form;
+    var layer = layui.layer;
+
+    form.render();
+
+    // 排序状态（点击表头切换，默认按 id 倒序）
+    var sortParam = { field: 'id', order: 'desc' };
+    var searchWhere = {};
+    function mergeQuery() {
+        var q = {};
+        Object.keys(searchWhere).forEach(function (k) { q[k] = searchWhere[k]; });
+        q.field = sortParam.field;
+        q.order = sortParam.order;
+        return q;
+    }
+
+    var rechargeTable = table.render({
+        elem: '#rechargeTable',
+        url: '/recharge/getList',
+        method: 'get',
+        page: true,
+        limit: 20,
+        limits: [10, 20, 50, 100],
+        toolbar: '#rechargeToolbar',
+        defaultToolbar: ['filter', 'print', 'exports'],
+        autoSort: false,
+        initSort: { field: 'id', type: 'desc' },
+        cols: [[
+            { field: 'id', title: 'UID', width: 70, align: 'center', sort: true },
+            { field: 'phone', title: '手机号', minWidth: 120, sort: true },
+            { field: 'nickname', title: '用户昵称', minWidth: 110, sort: true },
+            { field: 'currency_name', title: '币种', width: 90, align: 'center',
+              templet: function (d) {
+                  return '<span class="badge badge-blue">' + d.currency_name + '</span>';
+              }
+            },
+            { field: 'amount', title: '充值数量', minWidth: 120, align: 'right', sort: true,
+              templet: function (d) { return '<span class="recharge-amount">' + (d.amount_text != null ? d.amount_text : d.amount) + '</span>'; }
+            },
+            { field: 'status', title: '状态', width: 100, align: 'center',
+              templet: function (d) { return '<span class="badge ' + d.status_badge + '">' + d.status_text + '</span>'; }
+            },
+            { field: 'source_text', title: '来源', width: 80, align: 'center' },
+            { field: 'operator_type_text', title: '操作人类型', width: 110, align: 'center' },
+            { field: 'operator_name', title: '操作人', minWidth: 110 },
+            { field: 'remark', title: '备注', minWidth: 160 },
+            { field: 'create_time_text', title: '充值时间', minWidth: 160 }
+        ]]
+    });
+
+    // 搜索
+    form.on('submit(search)', function (data) {
+        searchWhere = data.field || {};
+        rechargeTable.reload({ where: mergeQuery(), page: { curr: 1 } });
+        return false;
+    });
+
+    // 表头排序：提交 field/order 给后端
+    table.on('sort(rechargeTable)', function (obj) {
+        sortParam.field = obj.field || 'id';
+        sortParam.order = obj.type || 'desc';
+        rechargeTable.reload({
+            initSort: obj,
+            where: mergeQuery(),
+            page: { curr: 1 }
+        });
+    });
+
+    // 工具栏：打印 / 导出（自定义导出，输出纯文本值）
+    table.on('toolbar(rechargeTable)', function (obj) {
+        if (obj.event === 'LAY_TABLE_EXPORT' || obj.event === 'exports') {
+            var exportData = [];
+            table.getData('rechargeTable', true).forEach(function (r) {
+                exportData.push({
+                    'ID': r.id,
+                    '手机号': r.phone,
+                    '用户昵称': r.nickname,
+                    '币种': r.currency_name,
+                    '充值数量': (r.amount_text != null ? r.amount_text : r.amount),
+                    '状态': r.status_text,
+                    '来源': r.source_text,
+                    '操作人类型': r.operator_type_text,
+                    '操作人': r.operator_name,
+                    '备注': r.remark,
+                    '充值时间': r.create_time_text
+                });
+            });
+            table.exportFile('rechargeTable', exportData, 'xlsx');
+            return false; // 阻止默认导出
+        }
+    });
+
+    // ===== 人工充值全屏弹框 =====
+    $('#btnManualRecharge').on('click', function () {
+        var searchTimer = null;
+        var selectedUser = null; // 当前选中的用户
+
+        var html = '' +
+            '<div class="recharge-layer">' +
+                // 1. 用户搜索
+                '<div class="recharge-field">' +
+                    '<div class="recharge-label">充值用户 <span class="tip">（输入 id / 昵称 / 用户名 自动搜索）</span></div>' +
+                    '<input type="text" id="rcUserSearch" placeholder="请输入 id / 昵称 / 用户名..." autocomplete="off" class="layui-input">' +
+                    '<div class="user-search-results" id="rcUserResults" style="margin-top:10px"></div>' +
+                    '<div class="recharge-wallet-show" id="rcWalletShow" style="display:none;"></div>' +
+                '</div>' +
+                // 2. 币种
+                '<div class="recharge-field">' +
+                    '<div class="recharge-label">充值币种 <span class="req">*</span></div>' +
+                    '<select id="rcCurrency" class="layui-input">' +
+                        '<option value="cny" selected>人民币 (CNY)</option>' +
+                        '<option value="paw">熊爪</option>' +
+                    '</select>' +
+                '</div>' +
+                // 3. 充值数量
+                '<div class="recharge-field">' +
+                    '<div class="recharge-label">充值数量 <span class="req">*</span></div>' +
+                    '<input type="text" id="rcAmount" placeholder="请输入充值数量" autocomplete="off" class="layui-input">' +
+                '</div>' +
+                // 4. 备注
+                '<div class="recharge-field">' +
+                    '<div class="recharge-label">备注</div>' +
+                    '<textarea id="rcRemark" placeholder="充值备注（默认：人工充值）" class="layui-textarea" rows="2"></textarea>' +
+                '</div>' +
+                // 5. 管理员密码（二次验证）
+                '<div class="recharge-field">' +
+                    '<div class="recharge-label">管理员密码 <span class="req">*</span> <span class="tip">（用于身份验证，充值需二次确认）</span></div>' +
+                    '<input type="password" id="rcPassword" placeholder="请输入当前管理员登录密码" autocomplete="off" class="layui-input">' +
+                '</div>' +
+                // 按钮
+                '<div class="recharge-actions">' +
+                    '<button type="button" class="layui-btn layui-btn-primary" id="rcCancel">取消</button>' +
+                    '<button type="button" class="layui-btn" id="rcSubmit">确认充值</button>' +
+                '</div>' +
+            '</div>';
+
+        var layerIndex = layer.open({
+            type: 1,
+            title: '人工充值',
+            area: ['100%', 'auto'],
+            content: html,
+            closeBtn: 1,
+            shade: 0.4,
+            shadeClose: false
+        });
+        form.render('select');
+
+        // 自动搜索（输入防抖 300ms）
+        $('#rcUserSearch').on('input', function () {
+            var kw = $(this).val().trim();
+            selectedUser = null;
+            $('#rcWalletShow').hide();
+            clearTimeout(searchTimer);
+            if (kw === '') {
+                $('#rcUserResults').html('<div class="user-empty">请输入内容进行搜索</div>');
+                return;
+            }
+            searchTimer = setTimeout(function () {
+                $.get('/recharge/searchUser', { keyword: kw }, function (res) {
+                    if (res.code !== 0) { $('#rcUserResults').html('<div class="user-empty">' + res.msg + '</div>'); return; }
+                    if (!res.data || res.data.length === 0) {
+                        $('#rcUserResults').html('<div class="user-empty">未找到匹配的用户</div>');
+                        return;
+                    }
+                    var html2 = '';
+                    res.data.forEach(function (u) {
+                        html2 += '<div class="user-item" data-id="' + u.id + '">' +
+                            '<img src="' + u.avatar + '">' +
+                            '<div class="u-info">' +
+                                '<div class="u-name">' + u.nickname + '</div>' +
+                                '<div class="u-sub">ID:' + u.id + ' · 手机号:' + (u.phone || '-') + '</div>' +
+                            '</div>' +
+                            '</div>';
+                    });
+                    $('#rcUserResults').html(html2);
+                }, 'json');
+            }, 300);
+        });
+
+        // 选择用户
+        $('#rcUserResults').on('click', '.user-item', function () {
+            $('.user-item').removeClass('selected');
+            $(this).addClass('selected');
+            var uid = $(this).attr('data-id');
+            // 从搜索结果里找该用户的钱包信息
+            var name = $(this).find('.u-name').text().trim();
+            selectedUser = { id: parseInt(uid, 10) };
+            // 重新查询用户钱包
+            $.get('/recharge/searchUser', { keyword: name.match(/\(([^)]+)\)/)[1] }, function (res) {
+                var user = null;
+                if (res.code === 0 && res.data) {
+                    for (var i = 0; i < res.data.length; i++) {
+                        if (parseInt(res.data[i].id, 10) === parseInt(uid, 10)) { user = res.data[i]; break; }
+                    }
+                }
+                var wHtml = '';
+                if (user && user.wallet) {
+                    wHtml += '<span class="w-tag">人民币<b>¥ ' + user.wallet.cny + '</b></span>';
+                    wHtml += '<span class="w-tag">熊爪<b>' + user.wallet.paw + '</b></span>';
+                }
+                $('#rcWalletShow').html('当前余额：' + wHtml).show();
+            }, 'json');
+        });
+
+        // 取消
+        $('#rcCancel').on('click', function () { layer.close(layerIndex); });
+
+        // 确认充值
+        $('#rcSubmit').on('click', function () {
+            if (!selectedUser) { layer.msg('请先选择充值用户', { icon: 2 }); return; }
+            var currency = $('#rcCurrency').val();
+            var amount = $('#rcAmount').val().trim();
+            var remark = $('#rcRemark').val().trim();
+            var pwd = $('#rcPassword').val();
+            if (amount === '' || isNaN(amount) || parseFloat(amount) <= 0) {
+                layer.msg('请输入正确的充值数量', { icon: 2 }); return;
+            }
+            if (currency === 'paw' && parseFloat(amount) % 1 !== 0) {
+                layer.msg('熊爪数量必须为整数', { icon: 2 }); return;
+            }
+            if (pwd === '') { layer.msg('请输入管理员密码确认操作', { icon: 2 }); return; }
+            $.post('/recharge/manualRecharge', {
+                user_id: selectedUser.id,
+                currency: currency,
+                amount: amount,
+                remark: remark,
+                admin_password: pwd
+            }, function (res) {
+                if (res.code === 0) {
+                    layer.close(layerIndex);
+                    layer.msg(res.msg, { icon: 1 });
+                    rechargeTable.reload();
+                } else {
+                    layer.msg(res.msg, { icon: 2 });
+                }
+            }, 'json');
+        });
+    });
+});
+</script>
+{/block}
