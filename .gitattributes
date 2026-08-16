@@ -1,0 +1,9 @@
+# 强制 shell 脚本在仓库内使用 LF（防止 Windows 端 CRLF 导致 Linux 执行报错）
+*.sh text eol=lf
+
+# 文本文件统一使用 UTF-8 无 BOM
+*.php text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.sql text eol=lf
