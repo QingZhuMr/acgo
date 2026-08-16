@@ -88,7 +88,10 @@ return [
     'heartbeat_idle'     => (int) ($env['WS_HEARTBEAT_IDLE'] ?? 90), // Swoole 内置心跳：超过该秒数无数据则断开（客户端 25s 发一次 ping）
 
     // ===== 进程数 =====
-    // Swoole 支持多进程，连接映射在 Swoole\Table 中跨 worker 共享，可安全多进程。
-    // Windows swoole-cli 仅支持单进程；Linux 生产按需调高（如 4）。
+    // 重要：本服务必须保持单进程（worker_num=1）！
+    // Swoole\Table 虽跨 worker 共享，但 isEstablished()/push() 等连接操作
+    // 只能作用于当前 worker 的连接；多进程下 worker 0 的心跳定时器会把
+    // 其他 worker 上的活连接误判为失效、推送也全部失败（delivered=0），
+    // 导致后台"在线"状态失真。切勿调大 WS_WORKER_NUM。
     'worker_num'         => (int) ($env['WS_WORKER_NUM'] ?? (PHP_OS_FAMILY === 'Windows' ? 1 : 1)),
 ];

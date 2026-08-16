@@ -328,6 +328,16 @@ function flushQueue(Swoole\WebSocket\Server $server, Swoole\Table $table): void
 // ============================================================
 // Swoole WebSocket Server
 // ============================================================
+// 启动前清理所有在线标记：服务重启后旧长连接已全部断开，
+// 若此前 worker 崩溃/被强杀未触发 onClose，online_status 会残留为 1，
+// 导致后台"在线"判断永久失真（本次重启前即出现过该问题）。
+try {
+    db()->prepare('UPDATE user_device SET online_status = 0, update_time = :t WHERE online_status = 1')
+        ->execute([':t' => time()]);
+} catch (Throwable $e) {
+    // 数据库暂不可用不影响服务启动，定时器会在后续周期重试兜底清理
+}
+
 $server = new Swoole\WebSocket\Server($config['ws_host'], $config['ws_port']);
 
 $server->set([
@@ -421,7 +431,10 @@ $server->on('workerStart', function (Swoole\WebSocket\Server $server, int $worke
     });
 
     // 周期性：清理失效连接 + 刷新在线设备时间（让后台"在线"状态保持实时）
+    // 注意：本服务按单 worker（worker_num=1）设计。Swoole 的 isEstablished()/push()
+    // 只能操作本 worker 的连接，多 worker 下跨 worker 连接会被误判失效，切勿调大 worker_num。
     Swoole\Timer::tick($config['heartbeat_interval'] * 1000, function () use ($server, $table) {
+        $aliveIds = []; // 当前存活连接的 device_db_id 集合
         foreach ($table as $key => $row) {
             $fd = (int) $key; // Table key 为 string
             $did = (int) ($row['device_db_id'] ?? 0);
@@ -439,6 +452,7 @@ $server->on('workerStart', function (Swoole\WebSocket\Server $server, int $worke
                 $table->del((string) $fd);
                 continue;
             }
+            $aliveIds[] = $did;
             // 连接存活：刷新最后在线时间（后台据此判断仍在线）
             try {
                 db()->prepare('UPDATE user_device SET last_online_time = :t WHERE id = :id')
@@ -446,6 +460,20 @@ $server->on('workerStart', function (Swoole\WebSocket\Server $server, int $worke
             } catch (Throwable $e) {
                 // 忽略
             }
+        }
+        // 兜底清理：DB 中标记在线但连接表里已不存在的设备。
+        // 服务重启 / worker 崩溃 / 进程被强杀等场景不会触发 onClose，
+        // 若不清理 online_status 会残留为 1，后台"在线"状态将永久失真。
+        try {
+            $now = time();
+            if ($aliveIds) {
+                $in = implode(',', array_map('intval', array_unique($aliveIds)));
+                db()->exec("UPDATE user_device SET online_status = 0, update_time = {$now} WHERE online_status = 1 AND id NOT IN ({$in})");
+            } else {
+                db()->exec("UPDATE user_device SET online_status = 0, update_time = {$now} WHERE online_status = 1");
+            }
+        } catch (Throwable $e) {
+            // 忽略
         }
     });
 });
