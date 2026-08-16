@@ -74,7 +74,7 @@ class IpLocation
         }
 
         $province = trim((string) ($data['province'] ?? ''));
-        return '' === $province ? '未知' : $province;
+        return '' === $province ? '未知' : self::normalizeRegion($province);
     }
 
     /**
@@ -110,13 +110,13 @@ class IpLocation
         $ad       = is_array($data['result']['ad_info'] ?? null) ? $data['result']['ad_info'] : [];
         $province = trim((string) ($ad['province'] ?? ''));
         if ('' !== $province) {
-            return $province;
+            return self::normalizeRegion($province);
         }
 
         // 国内省级为空但返回了国家（国外 IP），用国家名兜底
         $nation = trim((string) ($ad['nation'] ?? ''));
         if ('' !== $nation && '中国' !== $nation) {
-            return $nation;
+            return self::normalizeRegion($nation);
         }
 
         return '未知';
@@ -139,7 +139,27 @@ class IpLocation
         }
 
         $province = trim((string) ($data['content']['address_detail']['province'] ?? ''));
-        return '' === $province ? '未知' : $province;
+        return '' === $province ? '未知' : self::normalizeRegion($province);
+    }
+
+    /**
+     * 规范化地区名称：去掉末尾的"省/市"行政后缀，便于展示。
+     * 例：安徽省→安徽、上海市→上海、北京市→北京；
+     * 无这些后缀（如"广西壮族自治区"、国家名"美国"）则原样返回。
+     */
+    private static function normalizeRegion(string $name): string
+    {
+        $name = trim($name);
+        if ('' === $name) {
+            return $name;
+        }
+        if (mb_strlen($name) > 1) {
+            $tail = mb_substr($name, -1);
+            if ('省' === $tail || '市' === $tail) {
+                return mb_substr($name, 0, -1);
+            }
+        }
+        return $name;
     }
 
     /**
