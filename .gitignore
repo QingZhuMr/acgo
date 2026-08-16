@@ -17,7 +17,7 @@ Thumbs.db
 
 # ==================== 运行产物 ====================
 /runtime
-/user.ini
+/.user.ini
 /tmp
 /ws/stubs
 
