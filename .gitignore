@@ -21,11 +21,11 @@ Thumbs.db
 /tmp
 /ws/stubs
 
-# ==================== 用户上传图片（勿入库） ====================
-/public/static/avatar
-/public/static/post
-/public/static/comment
-/public/static/sticker
+# ==================== 用户上传图片（勿入库，仅保留空目录占位） ====================
+/public/static/avatar/*
+/public/static/post/*
+/public/static/comment/*
+/public/static/sticker/*
 
 # ==================== WS 运行产物 ====================
 /ws/logs
