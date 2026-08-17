@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\api\controller;
 
 use app\BaseController;
+use app\common\StickerCache;
 use think\facade\Db;
 
 /**
@@ -28,6 +29,9 @@ class Sticker extends BaseController
 
     /**
      * 表情包列表（业务接口）：全局正常表情包，按时间倒序
+     *
+     * 列表本体走 StickerCache（Redis 缓存，TTL 10 分钟）；is_mine 按当前用户
+     * 实时计算（不入缓存）。上传/删除后缓存自动失效。
      */
     public function list()
     {
@@ -37,13 +41,7 @@ class Sticker extends BaseController
         }
         $uid = (int) $device['user_id'];
 
-        $rows = Db::name('sticker')
-            ->where('status', 1)
-            ->field('id,user_id,url,width,height,mime')
-            ->order('create_time', 'desc')
-            ->limit(200)
-            ->select()
-            ->toArray();
+        $rows = StickerCache::get();
 
         $list = [];
         foreach ($rows as $r) {
@@ -85,6 +83,9 @@ class Sticker extends BaseController
         }
         // 软删（保留历史评论中引用图片可继续访问；若物理删除，历史评论里的表情会失效）
         Db::name('sticker')->where('id', $stickerId)->update(['status' => 0]);
+
+        // 列表缓存失效
+        StickerCache::forget();
 
         return json(['code' => 0, 'msg' => '删除成功']);
     }
@@ -166,6 +167,9 @@ class Sticker extends BaseController
             'status'      => 1,
             'create_time' => time(),
         ]);
+
+        // 列表缓存失效
+        StickerCache::forget();
 
         return json(['code' => 0, 'msg' => '上传成功', 'data' => [
             'id'     => (int) $id,

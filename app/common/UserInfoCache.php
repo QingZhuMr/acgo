@@ -26,6 +26,9 @@ class UserInfoCache
     /** Redis 缓存 store 名（对应 config/cache.php 的 redis 连接） */
     public const STORE = 'redis';
 
+    /** 缓存 key 前缀（store 前缀为空，此处自带完整业务前缀） */
+    public const KEY_PREFIX = 'acgo:user_info:';
+
     /** 默认头像（avatar 为空时展示用） */
     public const DEFAULT_AVATAR = '/static/admin/img/default-avatar.png';
 
@@ -54,7 +57,7 @@ class UserInfoCache
         if ($cache) {
             try {
                 foreach ($ids as $id) {
-                    $info = $cache->get((string) $id);
+                    $info = $cache->get(self::KEY_PREFIX . $id);
                     if (is_array($info)) {
                         $map[$id] = $info;
                     } else {
@@ -96,7 +99,7 @@ class UserInfoCache
             if (!self::$redisDown && $cache) {
                 try {
                     foreach ($found as $id => $info) {
-                        $cache->set((string) $id, $info, self::TTL);
+                        $cache->set(self::KEY_PREFIX . $id, $info, self::TTL);
                     }
                 } catch (\Throwable $e) {
                     self::$redisDown = true;
@@ -129,7 +132,7 @@ class UserInfoCache
             return;
         }
         try {
-            $cache->delete((string) $uid);
+            $cache->delete(self::KEY_PREFIX . $uid);
         } catch (\Throwable $e) {
             // 删除失败不影响业务
         }

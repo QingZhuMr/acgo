@@ -19,6 +19,7 @@ namespace app\admin\controller;
 use app\BaseController;
 use app\common\AdminLog;
 use app\common\Pusher;
+use app\common\UpdateCache;
 use think\facade\Db;
 use think\facade\Session;
 use think\facade\View;
@@ -129,6 +130,8 @@ class Update extends BaseController
             'update_time'  => $now,
         ]);
         $this->log('add', '新增客户端版本推送 id=' . $id);
+        // 版本数据变化，清平台缓存
+        UpdateCache::forget($data['platform']);
 
         // 新增即为上线状态时，实时推送该平台在线用户
         if (1 === (int) $data['status']) {
@@ -161,6 +164,8 @@ class Update extends BaseController
             'update_time'  => time(),
         ]);
         $this->log('edit', '编辑客户端版本推送 id=' . $id);
+        // 版本数据变化，清平台缓存
+        UpdateCache::forget($data['platform']);
 
         // 编辑后若为上线状态，实时推送该平台在线用户（客户端自行判断版本高低）
         if (1 === (int) $data['status']) {
@@ -177,8 +182,12 @@ class Update extends BaseController
     {
         $id = (int) $this->request->post('id', 0);
         if ($id <= 0) return $this->jsonOut(1, '参数错误');
+        $row = Db::name('update_version')->where('id', $id)->find();
+        if (!$row) return $this->jsonOut(1, '版本不存在');
         Db::name('update_version')->where('id', $id)->delete();
         $this->log('delete', '删除客户端版本推送 id=' . $id);
+        // 版本数据变化，清对应平台缓存
+        UpdateCache::forget((string) $row['platform']);
         return $this->jsonOut(0, '已删除', []);
     }
 
@@ -198,6 +207,8 @@ class Update extends BaseController
             'update_time' => time(),
         ]);
         $this->log('toggle', '切换版本状态 id=' . $id . ' -> ' . $status);
+        // 版本状态变化，清对应平台缓存
+        UpdateCache::forget((string) $row['platform']);
 
         // 上线时实时推送该平台所有在线用户
         if (1 === (int) $status) {

@@ -39,6 +39,18 @@
 - `code=401`：未授权（设备未授权 / 签名失效 / 账号状态异常）
 - `code=1`：业务校验失败（`msg` 为具体原因）
 
+### 0.5 Redis 缓存使用约定
+
+项目 Redis 缓存走 **ThinkPHP `Cache::store('redis')`**（配置 `config/cache.php` 的 `redis` store，参数 `REDIS_HOST/PORT/PASSWORD/DB/TIMEOUT` 读 `.env`，store 前缀为空、各 Cache 类自带完整业务前缀）。当前已使用缓存的场景：
+
+| 场景 | 缓存类 | key 前缀 | TTL | 失效时机 |
+|------|--------|----------|-----|---------|
+| 用户昵称/头像（帖子列表、帖子详情评论、通知列表触发者） | `UserInfoCache` | `acgo:user_info:` | 10 分钟 | 改昵称/换头像时主动清除 |
+| 表情包列表（`sticker/list`） | `StickerCache` | `acgo:sticker:list` | 10 分钟 | 上传/删除表情包时主动清除 |
+| 客户端最新版本（`update/check`，按平台） | `UpdateCache` | `acgo:update:latest:{platform}` | 10 分钟 | 后台新增/编辑/删除/上下线版本时主动清除 |
+
+> **降级策略**：Redis 不可用（未装 phpredis 扩展 / 未启动 / 连接失败）时自动降级直查库，业务不受影响，仅失去缓存红利。
+
 ---
 
 ## 1. 用户（User）
@@ -326,7 +338,7 @@
 
 - **路径**：`GET /api/sticker/list`
 - **鉴权**：业务（签名 + 设备密钥）
-- **功能**：返回全局正常表情包列表（≤200 条，时间倒序）。
+- **功能**：返回全局正常表情包列表（≤200 条，时间倒序）。列表本体走 `StickerCache`（Redis 缓存，TTL 10 分钟），`is_mine` 按当前用户实时计算；上传/删除表情包后缓存自动失效。
 
 **返回 data**：`list[] { id, url, width, height, mime, is_mine }`
 
@@ -363,7 +375,7 @@
 
 - **路径**：`GET /api/update/check`
 - **鉴权**：业务（签名 + 设备密钥）
-- **功能**：返回该平台最新上线版本信息；无更新返回空对象。
+- **功能**：返回该平台最新上线版本信息；无更新返回空对象。最新版本行走 `UpdateCache`（按平台 Redis 缓存，TTL 10 分钟）；后台新增/编辑/删除/上下线版本时缓存自动失效。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -396,6 +408,8 @@
 - `type`：`1`=评论了我的帖子，`2`=回复了我的评论
 - `post_content`/`comment_content`：展示用正文摘要（已截断、换行替换为空格）
 - `from_nickname`/`from_avatar`：触发者昵称/头像**实时联表 `user` 表获取**（经 Redis 缓存，TTL 10 分钟，见 `app/common/UserInfoCache.php`），`notification` 表不再存冗余快照；头像为空时返回默认头像
+
+> **Redis 缓存说明**：昵称/头像缓存走 **ThinkPHP `Cache::store('redis')` 门面**（配置见 `config/cache.php` 的 `redis` store，参数 `REDIS_HOST/PORT/PASSWORD/DB/TIMEOUT` 从 `.env` 读取，key 前缀 `acgo:user_info:`）。Redis 不可用（未装 phpredis 扩展 / 未启动 / 连接失败）时自动降级**直查库**，业务不受影响，仅失去缓存红利。用户改昵称 / 换头像后调用 `UserInfoCache::forget()` 主动失效。
 
 ### 6.2 未读数（业务）
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\api\controller;
 
 use app\BaseController;
+use app\common\UpdateCache;
 use think\facade\Db;
 
 /**
@@ -33,12 +34,8 @@ class Update extends BaseController
             return $this->jsonOut(1, '无效的平台');
         }
 
-        // 取该平台最新且上线的版本
-        $row = Db::name('update_version')
-            ->where('platform', $platform)
-            ->where('status', 1)
-            ->order('id', 'desc')
-            ->find();
+        // 取该平台最新且上线的版本（走 UpdateCache，Redis 缓存 TTL 10 分钟）
+        $row = UpdateCache::latest($platform);
 
         if (!$row) {
             return $this->jsonOut(0, '无可用更新', new \stdClass());
