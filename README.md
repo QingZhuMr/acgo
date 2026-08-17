@@ -1,77 +1,163 @@
-![](https://www.thinkphp.cn/uploads/images/20230630/300c856765af4d8ae758c503185f8739.png)
+# ACGO 社区后端
 
-ThinkPHP 8
-===============
+类小红书风格的社区平台**后端服务**，为「耶熊」PC 客户端（Flutter）提供 REST API 与实时推送能力，同时内置完整后台管理系统。
 
-## 特性
+- **技术栈**：ThinkPHP 8 · PHP 8.5 · MySQL 8 · Swoole WebSocket
+- **客户端**：[acgopc](https://github.com/QingZhuMr/acgopc)（Flutter Windows/macOS 桌面端）
+- **实时推送**：独立 Swoole WebSocket Server（不依赖框架）
 
-* 基于PHP`8.0+`重构
-* 升级`PSR`依赖
-* 依赖`think-orm`3.0+版本
-* 全新的`think-dumper`服务，支持远程调试
-* 支持`6.0`/`6.1`无缝升级
+---
 
-> ThinkPHP8的运行环境要求PHP8.0+
+## 功能特性
 
-现在开始，你可以使用官方提供的[ThinkChat](https://chat.topthink.com/)，让你在学习ThinkPHP的旅途中享受私人AI助理服务！
+### 前台 API（`app/api`，供客户端调用）
 
-![](https://www.topthink.com/uploads/assistant/20230630/4d1a3f0ad2958b49bb8189b7ef824cb0.png)
+| 模块 | 能力 |
+|------|------|
+| 用户 | 注册（图形验证码防机器人）、登录、个人资料、上传头像（自动压缩）、修改密码（强制下线）、单设备在线 |
+| 广场帖子 | 热度权重随机推荐、关键词搜索、分页加载、发帖（多图压缩）、删帖 |
+| 互动 | 点赞、收藏/取消收藏、我的收藏、我的动态、评论/楼中楼（聊天气泡展示）、删除评论、举报 |
+| 通知 | 评论/回复实时通知（应用内 + 系统双通道）、未读数、已读/一键已读 |
+| 表情包 | 上传/删除/列表（个人专属表情包） |
+| 系统 | 版本更新检查、域名/WS 地址下发 |
 
-ThinkPHP生态服务由[顶想云](https://www.topthink.com)（TOPThink Cloud）提供，为生态提供专业的开发者服务和价值之选。
+### 后台管理（`app/admin`）
 
-## 文档
+- 仪表盘：注册趋势、充值统计
+- 用户管理：搜索、封禁/解封、删除、手工充值（熊爪）
+- 帖子管理：列表、详情、删除帖子/评论、热度调节
+- 举报处理：举报列表、审核、处理
+- 系统配置：敏感词词典（在线更新）、充值配置
+- 运营：管理员账号管理、操作日志、版本发布管理
 
-[完全开发手册](https://doc.thinkphp.cn)
+### 实时推送（`ws/`）
 
+- 基于 **Swoole WebSocket Server** 的独立常驻进程，与框架解耦，仅依赖 Swoole + PDO
+- `Swoole\Table` 维护 `user_id → fd` 连接映射（多 worker 共享），支持多进程横向扩展
+- 推送协议：`auth / ping / bye` + `auth_result / force_logout / update / wallet / maintenance / reply_notice`
+- 离线消息兜底：业务侧写 `push_queue` 表，服务端定时轮询推送，客户端断线重连后可补齐
 
-## 赞助
+---
 
-全新的[赞助计划](https://www.thinkphp.cn/sponsor)可以让你通过我们的网站、手册、欢迎页及GIT仓库获得巨大曝光，同时提升企业的品牌声誉，也更好保障ThinkPHP的可持续发展。
+## 架构
 
-[![](https://www.thinkphp.cn/sponsor/special.svg)](https://www.thinkphp.cn/sponsor/special)
+```
+┌─────────────────────────────────────────────────────────┐
+│  客户端（Flutter 桌面 / H5 / 移动端）                     │
+│  REST API（签名 + 设备密钥）  +  WebSocket 长连接(2346)   │
+└───────┬──────────────────────────────────┬──────────────┘
+        │                                  │
+        ▼                                  ▼
+┌───────────────────┐          ┌──────────────────────────┐
+│  ThinkPHP 8 API   │          │  Swoole WebSocket Server │
+│  (app/api)        │          │  (ws/server.php 独立进程) │
+│  + 后台管理        │  写表    │  Swoole\Table 连接映射    │
+│  (app/admin)      │ ───────► │  push_queue 轮询推送     │
+└─────────┬─────────┘          └────────────┬─────────────┘
+          │                                 │
+          ▼                                 ▼
+      ┌──────────────────────┐
+      │   MySQL（acgo 库）    │
+      │  user / post /       │
+      │  notification /      │
+      │  push_queue ...      │
+      └──────────────────────┘
+```
 
-[![](https://www.thinkphp.cn/sponsor.svg)](https://www.thinkphp.cn/sponsor)
+**分层设计**：
 
-## 安装
+- `app/api` —— 前台 REST API（移动/桌面客户端）
+- `app/admin` —— 后台管理（浏览器）
+- `app/common` —— 公共服务：内容审核、图片压缩、IP 定位、消息推送、密码哈希
+- `ws/` —— Swoole WebSocket 实时推送服务（独立进程）
+- `sql/` —— 全量建表脚本与种子数据
 
-~~~
-composer create-project topthink/think tp
-~~~
+---
 
-启动服务
+## 安全机制
 
-~~~
-cd tp
+- **双层鉴权**：所有接口先验 HMAC-SHA256 签名（`API_SECRET` + 时间戳防重放 ±300s），业务接口再验设备级密钥 `X-Device-Key`
+- **单设备在线**：登录绑定设备密钥，异地登录强制旧设备下线（WS `force_logout`）
+- **内容安全**：发帖/评论过敏感词过滤；举报 + 后台审核闭环
+- **图片安全**：上传按场景压缩（头像方形小图、帖子最大边 1080px、评论 800px），限制体积防带宽滥用
+- **日志审计**：管理员操作日志 + 用户关键操作日志，可追溯
+
+---
+
+## 目录结构
+
+```
+acgo/
+├── app/
+│   ├── api/          # 前台 REST API（User/Post/Captcha/Notification/Sticker/Update）
+│   ├── admin/        # 后台管理（登录/用户/帖子/举报/充值/系统/日志/版本）
+│   ├── common/       # 公共服务（ContentCheck/ImageProcessor/IpLocation/Pusher/Password）
+│   ├── middleware/   # 全局中间件（CORS、签名+设备鉴权 ApiAuth）
+│   └── BaseController.php
+├── config/           # 框架配置（数据库/路由/日志/缓存…）
+├── docs/             # API 文档、安全规范、业务规范、搭建教程
+├── route/            # 路由（默认控制器自动分发）
+├── sql/              # 建表脚本（init.sql 及各业务表）
+├── ws/               # Swoole WebSocket 服务 + 部署脚本
+├── public/           # 入口 + 静态资源（上传图等）
+└── extend/           # 第三方扩展
+```
+
+---
+
+## 快速开始
+
+### 本地开发
+
+```bash
+# 1. 安装依赖
+composer install
+
+# 2. 配置环境（数据库、API_SECRET、域名等）
+cp .env.example .env   # 按需修改
+
+# 3. 初始化数据库
+mysql -u root -p < sql/init.sql   # 执行全部建表脚本
+
+# 4. 启动 API（ThinkPHP 内置服务）
 php think run
-~~~
 
-然后就可以在浏览器中访问
+# 5. 启动 WebSocket（Windows 本地用 swoole-cli 免安装二进制）
+cd ws && php server.php start
+```
 
-~~~
-http://localhost:8000
-~~~
+### 生产部署
 
-如果需要更新框架使用
-~~~
-composer update topthink/framework
-~~~
+服务器采用宝塔面板 + git 工作流：
 
-## 命名规范
+```bash
+# 服务器上拉取最新代码并生效（PHP-FPM 平滑重载 + 清缓存）
+cd /www/wwwroot/acgo && bash ws/deploy.sh
 
-`ThinkPHP`遵循PSR-2命名规范和PSR-4自动加载规范。
+# WebSocket 守护（start.sh 已注册宝塔计划任务每分钟兜底）
+bash ws/start.sh
+```
 
-## 参与开发
+> 完整教程见 [docs/后端搭建教程.md](docs/后端搭建教程.md)。
 
-直接提交PR或者Issue即可
+---
 
-## 版权信息
+## 相关文档
 
-ThinkPHP遵循Apache2开源协议发布，并提供免费使用。
+| 文档 | 说明 |
+|------|------|
+| [API接口文档.md](docs/API接口文档.md) | 全部前台接口定义（路径/鉴权/参数/返回） |
+| [安全规范.md](docs/安全规范.md) | 签名、设备密钥、密码、内容安全约定 |
+| [业务规范.md](docs/业务规范.md) | 业务逻辑约定（评论计数、收藏、充值等） |
+| [后端搭建教程.md](docs/后端搭建教程.md) | 环境搭建与部署步骤 |
+| [UI规范.md](docs/UI规范.md) | 客户端 UI 设计规范（双端主题/组件/滚动） |
 
-本项目包含的第三方源码和二进制文件之版权信息另行标注。
+---
 
-版权所有Copyright © 2006-2024 by ThinkPHP (http://thinkphp.cn) All rights reserved。
+## 客户端
 
-ThinkPHP® 商标和著作权所有者为上海顶想信息科技有限公司。
+PC 客户端仓库：[QingZhuMr/acgopc](https://github.com/QingZhuMr/acgopc)（Flutter，Windows/macOS，应用名「耶熊」）。
 
-更多细节参阅 [LICENSE.txt](LICENSE.txt)
+## License
+
+详见 [LICENSE.txt](LICENSE.txt)。
