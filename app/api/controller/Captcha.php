@@ -114,14 +114,21 @@ class Captcha extends BaseController
     }
 
     /**
-     * 字体路径（优先系统字体，找不到则返回 null → 用内置字体兜底）
+     * 字体路径（优先项目内置字体，再回退系统字体）
+     *
+     * 项目内置 DejaVuSans.ttf（开源）入库到 public/fonts/，
+     * 可避免 Linux 服务器 open_basedir 限制（宝塔默认仅允许站点目录）
+     * 导致读取系统字体失败、验证码无法渲染的问题；本地开发环境一致。
      */
     protected function fontPath(): string
     {
-        // Windows 常见字体
         $candidates = [
+            // 项目内置字体（open_basedir 内，Linux/Windows 通用）
+            dirname(__DIR__, 3) . '/public/fonts/DejaVuSans.ttf',
+            // Windows 常见系统字体（本地开发兜底）
             'C:/Windows/Fonts/arial.ttf',
             'C:/Windows/Fonts/arialbd.ttf',
+            // Linux 常见系统字体（兜底）
             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         ];
