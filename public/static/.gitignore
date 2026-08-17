@@ -1,2 +1,12 @@
-*
+# 用户上传图片目录（运行时产物，不入库；仅保留空目录占位）
+avatar/*
+post/*
+comment/*
+sticker/*
+!avatar/.gitkeep
+!post/.gitkeep
+!comment/.gitkeep
+!sticker/.gitkeep
+
+# 保留自身
 !.gitignore
