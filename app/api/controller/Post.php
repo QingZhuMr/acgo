@@ -164,6 +164,12 @@ class Post extends BaseController
             ->where('parent_id', 0)
             ->count();
 
+        // 评论总数（含楼中楼子评论）—— 楼中楼也算评论，与 post.comment_count 口径一致
+        $commentTotal = Db::name('post_comment')
+            ->where('post_id', $postId)
+            ->where('status', 1)
+            ->count();
+
         $topList = Db::name('post_comment')
             ->where('post_id', $postId)
             ->where('status', 1)
@@ -228,7 +234,7 @@ class Post extends BaseController
             'data' => [
                 'post'          => $post,
                 'comments'      => $comments,
-                'comment_total' => (int) $topTotal,
+                'comment_total' => (int) $commentTotal,
                 'page'          => $page,
             ],
         ]);
@@ -1044,10 +1050,21 @@ class Post extends BaseController
         if (0 === (int) $comment['status']) {
             return json(['code' => 1, 'msg' => '评论已删除']);
         }
+
+        $postId = (int) $comment['post_id'];
+
         Db::name('post_comment')->where('id', $commentId)->update(['status' => 0]);
-        // 若删除的是顶层评论，级联软删其楼中楼
+        // 删除的评论数：楼中楼也算评论。删顶层评论级联删其楼中楼，数量含楼中楼。
+        $decCount = 1;
         if (0 === (int) $comment['parent_id']) {
+            $childCount = (int) Db::name('post_comment')->where('parent_id', $commentId)->count();
             Db::name('post_comment')->where('parent_id', $commentId)->update(['status' => 0]);
+            $decCount += $childCount;
+        }
+
+        // 自动扣减帖子评论数（评论数含楼中楼，与 comment() 累加口径一致），避免为负
+        if ($decCount > 0) {
+            Db::name('post')->where('id', $postId)->dec('comment_count', $decCount)->update();
         }
 
         return json(['code' => 0, 'msg' => '删除成功']);

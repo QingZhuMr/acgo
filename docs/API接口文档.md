@@ -184,6 +184,8 @@
 - `comments[]`：顶层评论，每项含 `id, user_id, nickname, avatar, content, images[], like_count, is_liked, parent_id, reply_to_uid, create_time, create_time_text, location, children[]`（楼中楼，子评论字段同顶层，另含 `reply_to_name`）
 - `comment_total`、`page`
 
+> **`comment_total` 为帖子评论总数（含楼中楼子评论）**——楼中楼也算评论，与帖子 `comment_count` 口径一致。
+
 > 评论的 `nickname`/`avatar` 为**实时联表 user 查询**（`post_comment` 表已不存昵称/头像冗余字段），用户改名/换头像后评论即时同步。
 >
 > `location` 为发布/评论时的 **IP 归属地快照**（省/直辖市，解析失败为「未知」）。服务端在写入时调用 IP 定位解析一次并落库（`post.location` / `post_comment.location`），读取时直接返回、**不再调接口**。原始 IP 不返回给客户端。IP 定位服务商在后台「系统设置」可切换（**高德 / 腾讯 / 百度**），需填写对应 Key；未配置时 `location` 恒为「未知」。
@@ -294,6 +296,7 @@
 - **路径**：`POST /api/post/deleteComment`
 - **鉴权**：业务（签名 + 设备密钥）
 - **功能**：软删自己的评论（status=0）；删除顶层评论时级联软删其楼中楼。仅限本人。
+- **评论数联动**：删除后**自动扣减帖子 `comment_count`**（楼中楼也算评论）：删楼中楼减 1，删顶层评论减 1 + 其楼中楼数。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -484,3 +487,19 @@
 - 客户端登录接口返回 `503`（禁止登录 + 展示公告）
 - 已在线客户端通过 WebSocket 实时收到 `maintenance` 推送 → 展示常驻公告（不退出登录）
 - 新启动客户端通过 `user/domain` 的 `maintenance` 字段展示公告
+
+---
+
+## 10. 后台帖子 / 评论管理接口（admin）
+
+后台帖子管理（`admin/Post`）提供帖子与评论的管理接口，均需管理员登录 + 密码二次验证：
+
+| 接口 | 路径 | 说明 |
+|------|------|------|
+| 帖子列表 | `GET admin/Post/getList` | 分页 + 搜索 + 排序（含 `comment_count`） |
+| 帖子预览（含评论树） | `GET admin/Post/detail` | 帖子详情 + 顶层/楼中楼评论 |
+| 删除帖子 | `POST admin/Post/delete` | 软删帖子（密码二次验证），级联软删其所有评论 |
+| 增加热度 | `POST admin/Post/addHeat` | 帖子热度 +N |
+| **删除评论** | `POST admin/Post/deleteComment` | **软删评论/楼中楼（密码二次验证）**：删顶层级联删其楼中楼，并**自动扣减帖子 `comment_count`** |
+
+> `admin/Post/deleteComment` 参数：`comment_id`、`admin_password`。删除后写入 `admin_log`（类型 `comment_delete`）。后台帖子预览弹框内每条正常评论右侧提供「删除」入口。

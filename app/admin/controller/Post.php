@@ -216,6 +216,62 @@ class Post extends BaseController
     }
 
     /**
+     * 删除评论 / 楼中楼（软删，需管理员密码二次验证）
+     * POST：comment_id、admin_password
+     * 删除后自动扣减帖子评论数（含楼中楼）；删顶层评论级联删其楼中楼。
+     */
+    public function deleteComment()
+    {
+        $adminId = (int) Session::get('admin_id', 0);
+        $admin   = Db::name('admin')->where('id', $adminId)->find();
+        if (!$admin) {
+            return json(['code' => 1, 'msg' => '管理员不存在，请重新登录']);
+        }
+        if (0 === (int) $admin['status']) {
+            return json(['code' => 1, 'msg' => '管理员已被禁用']);
+        }
+
+        $commentId = (int) $this->request->post('comment_id', 0);
+        $adminPwd  = (string) $this->request->post('admin_password', '');
+        if ($commentId <= 0) {
+            return json(['code' => 1, 'msg' => '请选择要删除的评论']);
+        }
+        if ('' === $adminPwd) {
+            return json(['code' => 1, 'msg' => '请输入管理员密码确认操作']);
+        }
+        if (!Password::verify($adminPwd, $admin['password'])) {
+            return json(['code' => 1, 'msg' => '管理员密码错误']);
+        }
+
+        $comment = Db::name('post_comment')->where('id', $commentId)->find();
+        if (!$comment) {
+            return json(['code' => 1, 'msg' => '评论不存在']);
+        }
+        if (0 === (int) $comment['status']) {
+            return json(['code' => 1, 'msg' => '评论已删除']);
+        }
+
+        $postId = (int) $comment['post_id'];
+
+        Db::name('post_comment')->where('id', $commentId)->update(['status' => 0]);
+        // 删顶层评论级联删其楼中楼，评论数（含楼中楼）一并扣减
+        $decCount = 1;
+        if (0 === (int) $comment['parent_id']) {
+            $childCount = (int) Db::name('post_comment')->where('parent_id', $commentId)->count();
+            Db::name('post_comment')->where('parent_id', $commentId)->update(['status' => 0]);
+            $decCount += $childCount;
+        }
+        if ($decCount > 0) {
+            Db::name('post')->where('id', $postId)->dec('comment_count', $decCount)->update();
+        }
+
+        $remark = '删除评论 #' . $commentId . '（' . mb_substr((string) $comment['content'], 0, 30) . '）';
+        AdminLog::write($adminId, $admin['username'], 'comment_delete', $this->request->ip(), $remark);
+
+        return json(['code' => 0, 'msg' => '评论已删除']);
+    }
+
+    /**
      * 批量统计帖子点赞数（post_like 表）
      *
      * @param array $postIds

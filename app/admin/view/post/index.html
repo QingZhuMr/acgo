@@ -227,6 +227,7 @@ layui.use(['table', 'form', 'layer'], function () {
                         '<div class="c-body">' +
                             '<div class="c-name">' + c.nickname +
                                 (c.status_text !== '正常' ? '<span class="comment-del">[' + c.status_text + ']</span>' : '') +
+                                (c.status_text === '正常' ? '<a href="javascript:;" class="comment-del" onclick="delComment(' + c.id + ')">删除</a>' : '') +
                             '</div>' +
                             '<div class="c-text">' + (c.content_html || c.content) + '</div>' +
                             '<div class="c-time">' + c.create_time_text + '</div>' +
@@ -238,6 +239,7 @@ layui.use(['table', 'form', 'layer'], function () {
                                 '<div class="c-name">' + cc.nickname +
                                     '<span class="c-reply">回复 ' + cc.reply_to_name + '</span>' +
                                     (cc.status_text !== '正常' ? '<span class="comment-del">[' + cc.status_text + ']</span>' : '') +
+                                    (cc.status_text === '正常' ? '<a href="javascript:;" class="comment-del" onclick="delComment(' + cc.id + ')">删除</a>' : '') +
                                 '</div>' +
                                 '<div class="c-text">' + (cc.content_html || cc.content) + '</div>' +
                                 '<div class="c-time">' + cc.create_time_text + '</div>' +
@@ -368,5 +370,43 @@ layui.use(['table', 'form', 'layer'], function () {
         });
     }
 });
+
+// ===== 删除评论（密码二次验证；供预览弹框内评论行调用） =====
+function delComment(commentId) {
+    var layer = layui.layer, $ = layui.$;
+    layer.open({
+        type: 1,
+        title: '删除评论',
+        area: ['440px', 'auto'],
+        shade: 0.4,
+        shadeClose: false,
+        content: '<div style="padding:24px;">' +
+            '<div style="font-size:14px;color:var(--danger);margin-bottom:16px;">删除后该评论将在客户端隐藏（软删除）。删除顶层评论会连同其楼中楼一起删除，并自动扣减帖子评论数。</div>' +
+            '<div style="font-size:13px;color:var(--text-body);margin-bottom:8px;">请输入管理员密码确认操作：</div>' +
+            '<input type="password" id="delCommentPwd" placeholder="管理员密码" class="layui-input">' +
+            '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">' +
+                '<button type="button" class="layui-btn layui-btn-primary" id="delCommentCancel">取消</button>' +
+                '<button type="button" class="layui-btn layui-btn-danger" id="delCommentSubmit">确认删除</button>' +
+            '</div>' +
+        '</div>',
+        success: function (layero) {
+            layero.find('#delCommentCancel').on('click', function () { layer.closeAll(); });
+            layero.find('#delCommentSubmit').on('click', function () {
+                var pwd = layero.find('#delCommentPwd').val();
+                if (pwd === '') { layer.msg('请输入管理员密码', { icon: 2 }); return; }
+                $.post('/post/deleteComment', { comment_id: commentId, admin_password: pwd }, function (res) {
+                    if (res.code === 0) {
+                        layer.closeAll();
+                        layer.msg(res.msg, { icon: 1 });
+                        // 关闭当前预览弹框（避免缓存旧数据）
+                        layer.closeAll('page');
+                    } else {
+                        layer.msg(res.msg, { icon: 2 });
+                    }
+                }, 'json');
+            });
+        }
+    });
+}
 </script>
 {/block}
