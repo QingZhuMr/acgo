@@ -387,6 +387,10 @@ class Post extends BaseController
         }
         if ($replyToUid > 0) {
             $replyToName = (string) Db::name('user')->where('id', $replyToUid)->value('nickname');
+            // 回复目标已注销/被删除时兜底展示
+            if ('' === $replyToName) {
+                $replyToName = UserInfoCache::GHOST_NAME;
+            }
         }
 
         // 评论图片处理（可选，最多 1 张，原始 ≤10MB，>1MB 压缩到 ≤1MB）
@@ -751,6 +755,11 @@ class Post extends BaseController
         $u = $userMap[(int) $c['user_id']] ?? null;
         $c['nickname'] = $u['nickname'] ?? '';
         $c['avatar']   = ($u['avatar'] ?? '') ?: '/static/admin/img/default-avatar.png';
+        // 楼中楼回复目标昵称兜底：历史数据或目标已注销时可能为空，用联表结果补齐
+        $c['reply_to_name'] = (string) ($c['reply_to_name'] ?? '');
+        if ('' === $c['reply_to_name'] && (int) $c['reply_to_uid'] > 0) {
+            $c['reply_to_name'] = ($userMap[(int) $c['reply_to_uid']]['nickname'] ?? '') ?: UserInfoCache::GHOST_NAME;
+        }
         $c['location'] = (string) ($c['location'] ?? '');
         unset($c['ip']); // 不向客户端暴露原始 IP，仅返回归属地
         $c['images']   = self::decodeImages($c['images'] ?? '');

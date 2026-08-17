@@ -109,20 +109,20 @@ class Report extends BaseController
             $item['status_text']   = $statusName[(int) $item['status']] ?? '未知';
             $item['status_badge']  = $statusBadge[(int) $item['status']] ?? 'badge-gray';
             $item['reason_text']   = $reasonName[(string) $item['reason']] ?? $item['reason'];
-            $item['reporter_nickname'] = $item['reporter_nickname'] ?: '未知';
+            $item['reporter_nickname'] = $item['reporter_nickname'] ?: '已注销用户';
             $item['content_preview']   = mb_substr((string) $item['content'], 0, 60);
             $item['post_type']         = $item['comment_id'] > 0 ? 'comment' : 'post';
 
             // 被举报对象作者与内容
             if ($item['comment_id'] > 0) {
                 $t = $commentInfo[$item['comment_id']] ?? null;
-                $item['target_nickname']    = $t['nickname'] ?? '未知';
+                $item['target_nickname']    = ($t['nickname'] ?? '') ?: '已注销用户';
                 $item['target_content']     = $t['content'] ?? '';
                 $item['target_content_html'] = $this->renderStickers((string) ($t['content'] ?? ''));
                 $item['target_status']      = isset($t['status']) ? (int) $t['status'] : 1;
             } else {
                 $t = $postInfo[$item['post_id']] ?? null;
-                $item['target_nickname']    = $t['nickname'] ?? '未知';
+                $item['target_nickname']    = ($t['nickname'] ?? '') ?: '已注销用户';
                 $item['target_content']     = $t['content'] ?? '';
                 $item['target_content_html'] = $this->renderStickers((string) ($t['content'] ?? ''));
                 $item['target_status']      = isset($t['status']) ? (int) $t['status'] : 1;

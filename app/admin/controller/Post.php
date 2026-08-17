@@ -96,6 +96,8 @@ class Post extends BaseController
             $item['status_text']     = $statusName[(int) $item['status']] ?? '未知';
             $item['status_badge']    = $statusBadge[(int) $item['status']] ?? 'badge-gray';
             $item['content_preview'] = mb_substr((string) $item['content'], 0, 60);
+            // 用户已注销/被删除时 LEFT JOIN 结果为 NULL，兜底展示
+            $item['nickname']        = $item['nickname'] ?: '已注销用户';
             $item['avatar']          = $item['avatar'] ?: '/static/admin/img/default-avatar.png';
             $imgArr = $item['images'] ? json_decode((string) $item['images'], true) : [];
             $item['image_count']     = is_array($imgArr) ? count($imgArr) : 0;
@@ -132,6 +134,8 @@ class Post extends BaseController
         $post['report_count']     = (int) $post['report_count'];
         $post['create_time_text'] = $post['create_time'] ? date('Y-m-d H:i:s', (int) $post['create_time']) : '-';
         $post['status_text']      = self::STATUS_NAME[(int) $post['status']] ?? '未知';
+        // 用户已注销/被删除时 LEFT JOIN 结果为 NULL，兜底展示
+        $post['nickname']         = $post['nickname'] ?: '已注销用户';
         $post['avatar']           = $post['avatar'] ?: '/static/admin/img/default-avatar.png';
         $post['content_html']     = $this->renderStickers((string) $post['content']);
         $imgArr = $post['images'] ? json_decode((string) $post['images'], true) : [];
@@ -151,6 +155,8 @@ class Post extends BaseController
             $c['parent_id']        = (int) $c['parent_id'];
             $c['create_time_text'] = $c['create_time'] ? date('Y-m-d H:i:s', (int) $c['create_time']) : '-';
             $c['status_text']      = 1 === (int) $c['status'] ? '正常' : '已删除';
+            // 评论人已注销/被删除时 LEFT JOIN 结果为 NULL，兜底展示
+            $c['nickname']         = $c['nickname'] ?: '已注销用户';
             $c['avatar']           = $c['avatar'] ?: '/static/admin/img/default-avatar.png';
             // 表情包渲染为图片（预览可见）
             $c['content_html']     = $this->renderStickers((string) $c['content']);

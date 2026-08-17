@@ -32,6 +32,9 @@ class UserInfoCache
     /** 默认头像（avatar 为空时展示用） */
     public const DEFAULT_AVATAR = '/static/admin/img/default-avatar.png';
 
+    /** 用户已注销/被删除时的展示昵称（帖子/评论/通知里的幽灵用户兜底） */
+    public const GHOST_NAME = '已注销用户';
+
     /** 是否已确认 Redis 不可用（避免每次请求都抛异常降级） */
     private static bool $redisDown = false;
 
@@ -59,6 +62,8 @@ class UserInfoCache
                 foreach ($ids as $id) {
                     $info = $cache->get(self::KEY_PREFIX . $id);
                     if (is_array($info)) {
+                        // 兜底清洗历史缓存（旧版本可能存了空昵称/空头像）
+                        $info = self::sanitize($id, $info);
                         $map[$id] = $info;
                     } else {
                         $miss[] = $id;
@@ -81,16 +86,20 @@ class UserInfoCache
                 ->toArray();
             $found = [];
             foreach ($rows as $row) {
-                $info = [
-                    'nickname' => (string) ($row['nickname'] ?? ''),
-                    'avatar'   => (string) ($row['avatar'] ?? ''),
+                $id    = (int) $row['id'];
+                $found[$id] = [
+                    // 存在但昵称为空时显示「用户+ID」；头像缺失显示默认图
+                    'nickname' => (string) ($row['nickname'] ?? '') ?: ('用户' . $id),
+                    'avatar'   => (string) ($row['avatar'] ?? '') ?: self::DEFAULT_AVATAR,
                 ];
-                $found[(int) $row['id']] = $info;
             }
-            // 查不到的 uid 也写空占位，防缓存击穿
+            // 查不到的用户（已注销/被删除）写幽灵占位，防缓存击穿
             foreach ($miss as $id) {
                 if (!isset($found[$id])) {
-                    $found[$id] = ['nickname' => '', 'avatar' => ''];
+                    $found[$id] = [
+                        'nickname' => self::GHOST_NAME,
+                        'avatar'   => self::DEFAULT_AVATAR,
+                    ];
                 }
             }
             $map += $found;
@@ -116,7 +125,22 @@ class UserInfoCache
     public static function get(int $uid): array
     {
         $map = self::batch([$uid]);
-        return $map[$uid] ?? ['nickname' => '', 'avatar' => ''];
+        return $map[$uid] ?? ['nickname' => self::GHOST_NAME, 'avatar' => self::DEFAULT_AVATAR];
+    }
+
+    /**
+     * 兜底清洗单个缓存信息：昵称/头像为空时补默认值
+     *
+     * @param int   $uid  用户 ID（存在但昵称空时显示「用户+ID」）
+     * @param array $info 缓存里的信息
+     * @return array{0:string,1:string}
+     */
+    private static function sanitize(int $uid, array $info): array
+    {
+        return [
+            'nickname' => (string) ($info['nickname'] ?? '') ?: ('用户' . $uid),
+            'avatar'   => (string) ($info['avatar'] ?? '') ?: self::DEFAULT_AVATAR,
+        ];
     }
 
     /**
