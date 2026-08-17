@@ -182,9 +182,10 @@
 **返回 data**：
 - `post { id, user_id, content, images[], comment_count, favorite_count, like_count, is_liked, is_favorited, create_time, create_time_text, nickname, avatar, location }`
 - `comments[]`：顶层评论，每项含 `id, user_id, nickname, avatar, content, images[], like_count, is_liked, parent_id, reply_to_uid, create_time, create_time_text, location, children[]`（楼中楼，子评论字段同顶层，另含 `reply_to_name`）
-- `comment_total`、`page`
+- `comment_total`、`comment_top_total`、`page`
 
 > **`comment_total` 为帖子评论总数（含楼中楼子评论）**——楼中楼也算评论，与帖子 `comment_count` 口径一致。
+> **`comment_top_total` 为顶层评论总数**——顶层评论分页依据，客户端用它判断"加载更多评论"是否还有剩余（避免含楼中楼时误判永远加载不完）。
 
 > 评论的 `nickname`/`avatar` 为**实时联表 user 查询**（`post_comment` 表已不存昵称/头像冗余字段），用户改名/换头像后评论即时同步。
 >

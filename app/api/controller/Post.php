@@ -232,10 +232,12 @@ class Post extends BaseController
             'code' => 0,
             'msg'  => 'ok',
             'data' => [
-                'post'          => $post,
-                'comments'      => $comments,
-                'comment_total' => (int) $commentTotal,
-                'page'          => $page,
+                'post'              => $post,
+                'comments'          => $comments,
+                'comment_total'     => (int) $commentTotal,
+                // 顶层评论总数（分页基于顶层评论，客户端用其判断"加载更多"是否还有剩余）
+                'comment_top_total' => (int) $topTotal,
+                'page'              => $page,
             ],
         ]);
     }
