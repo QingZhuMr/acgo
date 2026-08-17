@@ -11,8 +11,6 @@ CREATE TABLE `notification` (
   `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '通知ID',
   `user_id`         INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '接收通知的用户ID',
   `from_uid`        INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '触发通知的用户ID（谁回复了）',
-  `from_nickname`   VARCHAR(50)  NOT NULL DEFAULT '' COMMENT '触发者昵称（冗余快照）',
-  `from_avatar`     VARCHAR(255) NOT NULL DEFAULT '' COMMENT '触发者头像（冗余快照）',
   `post_id`         INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '所属帖子ID',
   `post_content`    VARCHAR(500) NOT NULL DEFAULT '' COMMENT '帖子内容摘要（最多200字，用于通知展示）',
   `comment_id`      INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '回复的评论ID',

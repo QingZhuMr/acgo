@@ -395,6 +395,7 @@
 
 - `type`：`1`=评论了我的帖子，`2`=回复了我的评论
 - `post_content`/`comment_content`：展示用正文摘要（已截断、换行替换为空格）
+- `from_nickname`/`from_avatar`：触发者昵称/头像**实时联表 `user` 表获取**（经 Redis 缓存，TTL 10 分钟，见 `app/common/UserInfoCache.php`），`notification` 表不再存冗余快照；头像为空时返回默认头像
 
 ### 6.2 未读数（业务）
 
@@ -487,7 +488,7 @@
 
 > **维护推送机制**：后台系统设置开启/关闭维护并保存时，向 `push_queue` 写入广播（user_id=0），Swoole 轮询推送给所有在线客户端。客户端收到后实时展示/移除维护公告（**不强制退出登录**）。
 
-> **通知推送机制**：`post/comment` 写入评论后同步写入 `notification` 表，并经 `Pusher::send` 向被回复人推送 `reply_notice`。客户端收到后弹出应用内/系统通知并刷新铃铛角标；离线时通过定时轮询 `notification/unreadCount` 兜底补齐。
+> **通知推送机制**：`post/comment` 写入评论后同步写入 `notification` 表（不存触发者昵称/头像冗余快照），并经 `Pusher::send` 向被回复人推送 `reply_notice`（推送体携带实时昵称/头像供立即展示）。客户端收到后弹出应用内/系统通知并刷新铃铛角标；离线时通过定时轮询 `notification/unreadCount` 兜底补齐。
 
 ---
 

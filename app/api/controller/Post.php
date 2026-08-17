@@ -8,6 +8,7 @@ use app\common\ContentCheck;
 use app\common\ImageProcessor;
 use app\common\IpLocation;
 use app\common\Pusher;
+use app\common\UserInfoCache;
 use think\facade\Db;
 
 /**
@@ -442,13 +443,13 @@ class Post extends BaseController
         $notifyUid = $parentId > 0 ? $replyToUid : (int) $post['user_id'];
         if ($notifyUid > 0 && $notifyUid !== $uid) {
             $postExcerpt = mb_substr((string) $post['content'], 0, 200);
-            $fromName    = (string) $user['nickname'];
-            $fromAvatar  = (string) ($user['avatar'] ?? '');
+            // 触发者昵称/头像不冗余入库（notification 表已无这两个快照字段），
+            // 仅推送时携带实时值供客户端立即展示；列表接口经 UserInfoCache 实时联表。
+            $fromName   = (string) $user['nickname'];
+            $fromAvatar = (string) ($user['avatar'] ?? '');
             Db::name('notification')->insert([
                 'user_id'          => $notifyUid,
                 'from_uid'         => $uid,
-                'from_nickname'    => $fromName,
-                'from_avatar'      => $fromAvatar,
                 'post_id'          => $postId,
                 'post_content'     => $postExcerpt,
                 'comment_id'       => (int) $commentId,
@@ -646,28 +647,14 @@ class Post extends BaseController
     /**
      * 批量查询用户昵称/头像（实时联表 user，避免冗余）
      *
+     * 走 UserInfoCache：Redis 缓存优先（TTL 10 分钟），无 Redis 时自动降级直查库。
+     *
      * @param array $uids 用户 ID 列表
      * @return array [user_id => ['nickname' => string, 'avatar' => string]]
      */
     private static function userInfoMap(array $uids): array
     {
-        $ids = array_values(array_unique(array_map('intval', $uids)));
-        $map = [];
-        if (!$ids) {
-            return $map;
-        }
-        $rows = Db::name('user')
-            ->whereIn('id', $ids)
-            ->field('id,nickname,avatar')
-            ->select()
-            ->toArray();
-        foreach ($rows as $r) {
-            $map[(int) $r['id']] = [
-                'nickname' => (string) ($r['nickname'] ?? ''),
-                'avatar'   => (string) ($r['avatar'] ?? ''),
-            ];
-        }
-        return $map;
+        return UserInfoCache::batch($uids);
     }
 
     /**

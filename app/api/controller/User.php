@@ -4,8 +4,9 @@ declare (strict_types = 1);
 namespace app\api\controller;
 
 use app\BaseController;
-use think\facade\Db;
 use app\common\Password;
+use app\common\UserInfoCache;
+use think\facade\Db;
 
 /**
  * 前台用户接口（注册/登录）
@@ -325,6 +326,9 @@ class User extends BaseController
             'update_time' => time(),
         ]);
 
+        // 昵称变化立即失效缓存，避免评论/通知列表展示旧昵称
+        UserInfoCache::forget($uid);
+
         return json(['code' => 0, 'msg' => '保存成功', 'data' => ['nickname' => $nickname]]);
     }
 
@@ -392,6 +396,9 @@ class User extends BaseController
             'avatar'      => $avatarPath,
             'update_time' => time(),
         ]);
+
+        // 头像变化立即失效缓存，避免评论/通知列表展示旧头像
+        UserInfoCache::forget($uid);
 
         return json(['code' => 0, 'msg' => '头像更新成功', 'data' => ['avatar' => $avatarPath]]);
     }

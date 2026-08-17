@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\api\controller;
 
 use app\BaseController;
+use app\common\UserInfoCache;
 use think\facade\Db;
 
 /**
@@ -51,21 +52,26 @@ class Notification extends BaseController
             ->where('user_id', $uid)
             ->count();
 
+        // 通知表已不存触发者昵称/头像冗余快照，按 from_uid 实时联表 user（走 Redis 缓存）
         $rows = Db::name('notification')
             ->where('user_id', $uid)
-            ->field('id,from_uid,from_nickname,from_avatar,post_id,post_content,comment_id,comment_content,type,is_read,create_time')
+            ->field('id,from_uid,post_id,post_content,comment_id,comment_content,type,is_read,create_time')
             ->order('id', 'desc')
             ->page($page, $pageSize)
             ->select()
             ->toArray();
 
+        $userMap = UserInfoCache::batch(array_column($rows, 'from_uid'));
+
         $list = [];
         foreach ($rows as $r) {
+            $fromUid   = (int) $r['from_uid'];
+            $fromInfo  = $userMap[$fromUid] ?? ['nickname' => '', 'avatar' => ''];
             $list[] = [
                 'id'              => (int) $r['id'],
-                'from_uid'        => (int) $r['from_uid'],
-                'from_nickname'   => (string) $r['from_nickname'],
-                'from_avatar'     => (string) $r['from_avatar'],
+                'from_uid'        => $fromUid,
+                'from_nickname'   => (string) ($fromInfo['nickname'] ?? ''),
+                'from_avatar'     => (string) (($fromInfo['avatar'] ?? '') ?: UserInfoCache::DEFAULT_AVATAR),
                 'post_id'         => (int) $r['post_id'],
                 'post_content'    => $this->shorten((string) $r['post_content']),
                 'comment_id'      => (int) $r['comment_id'],
