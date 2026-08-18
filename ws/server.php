@@ -352,6 +352,17 @@ $server->set([
 ]);
 
 // ---------- 连接建立 ----------
+// ---------- 定时清理（每 1 小时） ----------
+// 聊天消息 30 天缓存清理：删除 expire_time 已过期的密文消息（服务器零知识，直接删）
+Swoole\Timer::tick(3600 * 1000, function () {
+    try {
+        $pdo = db();
+        $pdo->exec("DELETE FROM chat_message WHERE expire_time > 0 AND expire_time < " . time());
+    } catch (Throwable $e) {
+        // 清理失败静默，下次再试
+    }
+});
+
 $server->on('open', function (Swoole\WebSocket\Server $server, Swoole\Http\Request $request) use ($config, $table) {
     $fd = $request->fd;
     $table->set((string) $fd, [

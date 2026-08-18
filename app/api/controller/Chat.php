@@ -1,0 +1,288 @@
+<?php
+declare (strict_types = 1);
+
+namespace app\api\controller;
+
+use app\BaseController;
+use app\common\Pusher;
+use think\facade\Db;
+
+/**
+ * 聊天接口（第二期）
+ *
+ * 安全模型：
+ *   - 端到端加密：消息体 body 为 AES-GCM 密文，服务器仅存储/转发，无法解密。
+ *   - 仅好友（互相关注）可发消息；非好友发送返回错误。
+ *   - 服务器保留密文 30 天（expire_time = create_time + 2592000），
+ *     由清理任务定期删除过期消息。
+ *   - client_msg_id 客户端幂等去重。
+ *
+ * 全部为业务接口（签名 + 设备密钥）。
+ */
+class Chat extends BaseController
+{
+    /** 30 天缓存秒数 */
+    protected const CACHE_TTL = 2592000;
+
+    /** 单页最多条数 */
+    protected const PAGE_SIZE_MAX = 100;
+
+    /**
+     * 获取 / 上传本人公钥（业务接口）
+     * GET：返回我的公钥（未上传返回 public_key=null）
+     * POST：public_key（base64）上传，覆盖旧值
+     */
+    public function key()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $isGet = 'GET' === strtoupper($this->request->method());
+        if ($isGet) {
+            $row = Db::name('user_e2ee_key')->where('user_id', $uid)->find();
+            return json([
+                'code' => 0, 'msg' => 'ok', 'data' => [
+                    'public_key' => $row ? (string) $row['public_key'] : null,
+                ],
+            ]);
+        }
+
+        $publicKey = trim((string) $this->request->post('public_key', ''));
+        if ($publicKey === '') {
+            return json(['code' => 1, 'msg' => '公钥不能为空']);
+        }
+        if (strlen($publicKey) > 2048) {
+            return json(['code' => 1, 'msg' => '公钥格式过长']);
+        }
+        $now = time();
+        $exists = Db::name('user_e2ee_key')->where('user_id', $uid)->find();
+        if ($exists) {
+            Db::name('user_e2ee_key')->where('user_id', $uid)->update([
+                'public_key'  => $publicKey,
+                'create_time' => $now,
+            ]);
+        } else {
+            Db::name('user_e2ee_key')->insert([
+                'user_id'     => $uid,
+                'public_key'  => $publicKey,
+                'create_time' => $now,
+            ]);
+        }
+        return json(['code' => 0, 'msg' => 'ok', 'data' => ['public_key' => $publicKey]]);
+    }
+
+    /**
+     * 批量获取用户公钥（业务接口）
+     * POST：user_ids（逗号分隔或数组）—— 发消息前拉取对方公钥
+     */
+    public function keys()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+
+        $raw = $this->request->post('user_ids', '');
+        $ids = [];
+        if (is_array($raw)) {
+            $ids = array_map('intval', $raw);
+        } else {
+            $ids = array_map('intval', explode(',', (string) $raw));
+        }
+        $ids = array_values(array_unique(array_filter($ids, fn ($id) => $id > 0)));
+        if (!$ids) {
+            return json(['code' => 0, 'msg' => 'ok', 'data' => ['keys' => []]]);
+        }
+
+        $rows = Db::name('user_e2ee_key')
+            ->whereIn('user_id', $ids)
+            ->field('user_id,public_key')
+            ->select()
+            ->toArray();
+        $keys = [];
+        foreach ($rows as $r) {
+            $keys[(int) $r['user_id']] = (string) $r['public_key'];
+        }
+        return json(['code' => 0, 'msg' => 'ok', 'data' => ['keys' => $keys]]);
+    }
+
+    /**
+     * 发送聊天消息（业务接口）
+     * POST：receiver_id、msg_type（默认1）、body（密文）、nonce、ephemeral_pub、client_msg_id
+     *
+     * 仅好友（互相关注）可发送。
+     */
+    public function send()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $receiverId = (int) $this->request->post('receiver_id', 0);
+        $msgType    = (int) $this->request->post('msg_type', 1);
+        $body       = (string) $this->request->post('body', '');
+        $nonce      = (string) $this->request->post('nonce', '');
+        $ephemeralPub = (string) $this->request->post('ephemeral_pub', '');
+        $clientMsgId  = trim((string) $this->request->post('client_msg_id', ''));
+
+        if ($receiverId <= 0 || $receiverId === $uid) {
+            return json(['code' => 1, 'msg' => '接收者无效']);
+        }
+        if (!in_array($msgType, [1, 2, 3, 4], true)) {
+            return json(['code' => 1, 'msg' => '消息类型无效']);
+        }
+        if ($body === '' || $nonce === '' || $ephemeralPub === '') {
+            return json(['code' => 1, 'msg' => '消息内容不完整']);
+        }
+        if (mb_strlen($body) > 20000) {
+            return json(['code' => 1, 'msg' => '消息内容过长']);
+        }
+
+        // 仅好友可聊天
+        if (!$this->isFriend($uid, $receiverId)) {
+            return json(['code' => 1, 'msg' => '仅好友之间可以聊天']);
+        }
+
+        // 客户端幂等：同 client_msg_id + 同发送者已存在则不重复插入
+        if ($clientMsgId !== '') {
+            $exists = Db::name('chat_message')
+                ->where('sender_id', $uid)
+                ->where('client_msg_id', $clientMsgId)
+                ->find();
+            if ($exists) {
+                return json([
+                    'code' => 0, 'msg' => 'ok', 'data' => [
+                        'id' => (int) $exists['id'],
+                        'create_time' => (int) $exists['create_time'],
+                        'duplicate' => true,
+                    ],
+                ]);
+            }
+        }
+
+        $now = time();
+        $chatId = $this->chatId($uid, $receiverId);
+        $msgId = Db::name('chat_message')->insertGetId([
+            'chat_id'       => $chatId,
+            'sender_id'     => $uid,
+            'receiver_id'   => $receiverId,
+            'msg_type'      => $msgType,
+            'body'          => $body,
+            'nonce'         => $nonce,
+            'ephemeral_pub' => $ephemeralPub,
+            'client_msg_id' => $clientMsgId,
+            'status'        => 1,
+            'create_time'   => $now,
+            'expire_time'   => $now + self::CACHE_TTL,
+        ]);
+
+        // 实时推送：接收方在线则立即收到（密文透传）
+        Pusher::send(
+            ['user_id' => $receiverId],
+            [
+                'type' => 'chat_message',
+                'message' => [
+                    'id'            => (int) $msgId,
+                    'chat_id'       => $chatId,
+                    'sender_id'     => $uid,
+                    'receiver_id'   => $receiverId,
+                    'msg_type'      => $msgType,
+                    'body'          => $body,
+                    'nonce'         => $nonce,
+                    'ephemeral_pub' => $ephemeralPub,
+                    'client_msg_id' => $clientMsgId,
+                    'create_time'   => $now,
+                ],
+            ]
+        );
+
+        return json([
+            'code' => 0, 'msg' => 'ok', 'data' => [
+                'id' => (int) $msgId,
+                'create_time' => $now,
+            ],
+        ]);
+    }
+
+    /**
+     * 拉取会话历史（业务接口）
+     * GET：peer_id（对方用户ID）、before_id（可选，游标，默认最新）、page_size（默认50最大100）
+     *
+     * 返回 30 天缓存内的密文消息，按 id 倒序（客户端倒序展示）。
+     */
+    public function history()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $peerId   = (int) $this->request->get('peer_id', 0);
+        $beforeId = (int) $this->request->get('before_id', 0);
+        $pageSize = (int) $this->request->get('page_size', 50);
+        $pageSize = min(max(1, $pageSize), self::PAGE_SIZE_MAX);
+
+        if ($peerId <= 0 || $peerId === $uid) {
+            return json(['code' => 1, 'msg' => '对方用户无效']);
+        }
+
+        $chatId = $this->chatId($uid, $peerId);
+        $query = Db::name('chat_message')
+            ->where('chat_id', $chatId)
+            ->where('status', '<>', 3); // 排除删除
+        if ($beforeId > 0) {
+            $query->where('id', '<', $beforeId);
+        }
+        $rows = $query
+            ->field('id,chat_id,sender_id,receiver_id,msg_type,body,nonce,ephemeral_pub,client_msg_id,status,create_time')
+            ->order('id', 'desc')
+            ->limit($pageSize)
+            ->select()
+            ->toArray();
+
+        $list = [];
+        foreach ($rows as $r) {
+            $list[] = [
+                'id'            => (int) $r['id'],
+                'chat_id'       => (string) $r['chat_id'],
+                'sender_id'     => (int) $r['sender_id'],
+                'receiver_id'   => (int) $r['receiver_id'],
+                'msg_type'      => (int) $r['msg_type'],
+                'body'          => (string) $r['body'],
+                'nonce'         => (string) $r['nonce'],
+                'ephemeral_pub' => (string) $r['ephemeral_pub'],
+                'client_msg_id' => (string) $r['client_msg_id'],
+                'status'        => (int) $r['status'],
+                'create_time'   => (int) $r['create_time'],
+            ];
+        }
+
+        return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $list]]);
+    }
+
+    /**
+     * 会话 ID：min(uid, peer)_max(uid, peer)
+     */
+    protected function chatId(int $a, int $b): string
+    {
+        return min($a, $b) . '_' . max($a, $b);
+    }
+
+    /**
+     * 是否好友（互相关注）
+     */
+    protected function isFriend(int $a, int $b): bool
+    {
+        $forward  = Db::name('user_follow')
+            ->where('follower_id', $a)->where('following_id', $b)->find();
+        $backward = Db::name('user_follow')
+            ->where('follower_id', $b)->where('following_id', $a)->find();
+        return (bool) ($forward && $backward);
+    }
+}

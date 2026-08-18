@@ -5,6 +5,7 @@ namespace app\api\controller;
 
 use app\BaseController;
 use app\common\Password;
+use app\common\Pusher;
 use app\common\UserInfoCache;
 use think\facade\Db;
 
@@ -599,6 +600,39 @@ class User extends BaseController
             ->where('follower_id', $targetUid)
             ->where('following_id', $uid)
             ->find();
+
+        // 被关注通知：给被关注者落库 type=3 通知 + WS 推送 follow_notice
+        if ($targetUid !== $uid) {
+            // 触发者昵称/头像（deviceInfo 只有设备信息，需从 user 表联查）
+            $fromUser = Db::name('user')->where('id', $uid)->field('nickname,avatar')->find();
+            $fromName = (string) ($fromUser['nickname'] ?? '');
+            $fromAvatar = (string) ($fromUser['avatar'] ?? '');
+            Db::name('notification')->insert([
+                'user_id'      => $targetUid,
+                'from_uid'     => $uid,
+                'post_id'      => 0,
+                'post_content' => '',
+                'comment_id'   => 0,
+                'comment_content' => '',
+                'type'         => 3,
+                'is_read'      => 0,
+                'create_time'  => $now,
+            ]);
+            Pusher::send(
+                ['user_id' => $targetUid],
+                [
+                    'type'          => 'follow_notice',
+                    'notification'  => [
+                        'from_uid'       => $uid,
+                        'from_nickname'  => $fromName,
+                        'from_avatar'    => $fromAvatar,
+                        'type'           => 3,
+                        'create_time'    => $now,
+                    ],
+                ]
+            );
+        }
+
         return json([
             'code' => 0, 'msg' => '关注成功', 'data' => [
                 'is_following' => true,
