@@ -675,6 +675,167 @@ class User extends BaseController
     }
 
     /**
+     * 我关注的列表（业务接口）
+     * GET：page、page_size —— 我关注了谁，按关注时间倒序
+     * 返回 data：list[]{ user_id, nickname, avatar, follow_time, is_mutual(是否互相关注) }
+     */
+    public function following()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+        $page     = max(1, (int) $this->request->get('page', 1));
+        $pageSize = min(50, max(1, (int) $this->request->get('page_size', 20)));
+
+        $rows = Db::name('user_follow')
+            ->where('follower_id', $uid)
+            ->field('following_id,create_time')
+            ->order('create_time', 'desc')
+            ->page($page, $pageSize)
+            ->select()
+            ->toArray();
+        $total = Db::name('user_follow')->where('follower_id', $uid)->count();
+
+        $ids = array_column($rows, 'following_id');
+        $list = $this->followListWithMutual($ids, $rows, 'following_id', $uid);
+
+        return json([
+            'code' => 0, 'msg' => 'ok', 'data' => [
+                'list' => $list, 'page' => $page, 'total' => $total,
+                'has_more' => $page * $pageSize < $total,
+            ],
+        ]);
+    }
+
+    /**
+     * 我的粉丝列表（业务接口）
+     * GET：page、page_size —— 谁关注了我，按关注时间倒序
+     * 返回 data：list[]{ user_id, nickname, avatar, follow_time, is_mutual(是否互相关注) }
+     */
+    public function followers()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+        $page     = max(1, (int) $this->request->get('page', 1));
+        $pageSize = min(50, max(1, (int) $this->request->get('page_size', 20)));
+
+        $rows = Db::name('user_follow')
+            ->where('following_id', $uid)
+            ->field('follower_id,create_time')
+            ->order('create_time', 'desc')
+            ->page($page, $pageSize)
+            ->select()
+            ->toArray();
+        $total = Db::name('user_follow')->where('following_id', $uid)->count();
+
+        $ids = array_column($rows, 'follower_id');
+        $list = $this->followListWithMutual($ids, $rows, 'follower_id', $uid);
+
+        return json([
+            'code' => 0, 'msg' => 'ok', 'data' => [
+                'list' => $list, 'page' => $page, 'total' => $total,
+                'has_more' => $page * $pageSize < $total,
+            ],
+        ]);
+    }
+
+    /**
+     * 组装关注/粉丝列表（带 is_mutual 互关标记）
+     *
+     * @param array $ids      用户 ID 列表
+     * @param array $rows     原始记录（含 user_id 字段名对应列）
+     * @param string $idField 用户 ID 字段名（following_id / follower_id）
+     * @param int   $uid      当前用户
+     */
+    private function followListWithMutual(array $ids, array $rows, string $idField, int $uid): array
+    {
+        $list = [];
+        if (!$ids) {
+            return $list;
+        }
+        $userMap = UserInfoCache::batch($ids);
+
+        // 判断我关注的人里哪些是互相关注（他关注了我）
+        $mutualIds = [];
+        if ('following_id' === $idField) {
+            $back = Db::name('user_follow')
+                ->where('follower_id', $ids)
+                ->where('following_id', $uid)
+                ->field('follower_id')
+                ->select()
+                ->toArray();
+            $mutualIds = array_column($back, 'follower_id');
+        } else {
+            // 粉丝里哪些是我已关注的（互关）
+            $back = Db::name('user_follow')
+                ->where('follower_id', $uid)
+                ->whereIn('following_id', $ids)
+                ->field('following_id')
+                ->select()
+                ->toArray();
+            $mutualIds = array_column($back, 'following_id');
+        }
+        $mutualMap = array_flip(array_map('intval', $mutualIds));
+
+        foreach ($rows as $r) {
+            $fid = (int) $r[$idField];
+            $u   = $userMap[$fid] ?? ['nickname' => '', 'avatar' => ''];
+            $list[] = [
+                'user_id'     => $fid,
+                'nickname'    => (string) ($u['nickname'] ?? ''),
+                'avatar'      => (string) ($u['avatar'] ?? ''),
+                'follow_time' => (int) $r['create_time'],
+                'is_mutual'   => isset($mutualMap[$fid]),
+            ];
+        }
+        return $list;
+    }
+
+    /**
+     * 关注统计（业务接口）
+     * GET —— 返回我的 关注数 / 粉丝数 / 好友数（互相关注）
+     */
+    public function followCounts()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $following = (int) Db::name('user_follow')->where('follower_id', $uid)->count();
+        $followers = (int) Db::name('user_follow')->where('following_id', $uid)->count();
+
+        // 好友数 = 互相关注数
+        $myFollowingIds = Db::name('user_follow')
+            ->where('follower_id', $uid)
+            ->field('following_id')
+            ->select()
+            ->toArray();
+        $followingIds = array_column($myFollowingIds, 'following_id');
+        $friends = 0;
+        if ($followingIds) {
+            $friends = (int) Db::name('user_follow')
+                ->where('following_id', $uid)
+                ->whereIn('follower_id', $followingIds)
+                ->count();
+        }
+
+        return json([
+            'code' => 0, 'msg' => 'ok', 'data' => [
+                'following' => $following,
+                'followers' => $followers,
+                'friends'   => $friends,
+            ],
+        ]);
+    }
+
+    /**
      * 关注状态（业务接口）
      * GET：target_uid —— 返回 is_following / is_mutual（我是否关注他 / 是否互相关注）
      */
