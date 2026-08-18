@@ -155,6 +155,9 @@ class AiApi:
             'parent_id': parent_id, 'reply_to_uid': reply_to_uid, 'notify': notify,
         })
 
+    def post_list(self, page=1, page_size=20):
+        return self.get('postList', params={'page': page, 'page_size': page_size})
+
     def like(self, uid, post_id, notify=0):
         return self.post('like', data={'uid': uid, 'post_id': post_id, 'notify': notify})
 
@@ -358,24 +361,47 @@ def cmd_publish(args):
 
 
 def cmd_comment(args):
-    """批量回帖/评论"""
+    """批量回帖/评论
+
+    --post-id 不传时，自动读取数据库已有帖子随机挑选（每次评论随机选一个帖）。
+    """
     api = AiApi(args.api, args.token)
     accounts = load_accounts(args.accounts)
     comments = read_lines(args.content_file, DEFAULT_COMMENTS)
     n = min(args.max, len(accounts))
     selected = pick_accounts(accounts, args.max)
-    print(f'[*] 用 {n} 个账号评论帖子 {args.post_id}（delay {args.delay}）')
+
+    # 未指定帖子：拉取帖子池（取最近几页），随机挑
+    post_pool = []
+    if args.post_id:
+        print(f'[*] 用 {n} 个账号评论帖子 {args.post_id}（delay {args.delay}）')
+    else:
+        print(f'[*] 用 {n} 个账号随机选帖评论（delay {args.delay}）...')
+        for page in range(1, 4):  # 最多拉 3 页作为随机池
+            try:
+                j = api.post_list(page=page, page_size=50)
+                rows = (j.get('data') or {}).get('list') or []
+                if not rows:
+                    break
+                post_pool.extend([r['id'] for r in rows if r.get('id')])
+            except Exception:
+                break
+        if not post_pool:
+            print('[!] 未获取到帖子，请先发帖或用 --post-id 指定')
+            return
+        print(f'[i] 帖子池 {len(post_pool)} 条，评论时随机挑选')
 
     ok = fail = 0
     for a in selected:
         content = random.choice(comments)
+        post_id = args.post_id or random.choice(post_pool)
         try:
-            j = api.comment(a['id'], args.post_id, content,
+            j = api.comment(a['id'], post_id, content,
                             parent_id=args.parent_id or 0,
                             reply_to_uid=args.reply_to_uid or 0,
                             notify=0)
             if j.get('code') == 0:
-                print(f'  [ok] {a["nickname"]}(id={a["id"]}) -> comment_id={j["data"]["comment_id"]}')
+                print(f'  [ok] {a["nickname"]}(id={a["id"]}) 评论 post={post_id} -> comment_id={j["data"]["comment_id"]}')
                 ok += 1
             else:
                 print(f'  [!!] {a["nickname"]} 评论失败: {j.get("msg")}')
@@ -481,7 +507,7 @@ def main():
     # comment
     p = sub.add_parser('comment', help='批量回帖/评论')
     p.add_argument('--accounts', required=True, help='账号信息文件')
-    p.add_argument('--post-id', type=int, required=True, help='目标帖子 id')
+    p.add_argument('--post-id', type=int, default=0, help='目标帖子 id（不传则自动读取数据库已有帖子随机选一个评论）')
     p.add_argument('--content-file', default='', help='评论内容文件（每行一条），不传用内置素材')
     p.add_argument('--parent-id', type=int, default=0, help='楼中楼父评论 id（可选）')
     p.add_argument('--reply-to-uid', type=int, default=0, help='楼中楼回复目标 uid（可选）')

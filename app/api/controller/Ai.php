@@ -34,6 +34,7 @@ use think\facade\Db;
  *  - POST /api/ai/commentLike   评论点赞/取消点赞（uid + comment_id）
  *  - POST /api/ai/follow        关注/取关（uid + target_uid）
  *  - GET  /api/ai/accounts      查询账号信息（含绑定IP，按 uid 或 phone）
+ *  - GET  /api/ai/postList      帖子列表（供脚本随机选帖评论）
  *  - POST /api/ai/rebindIp      重新分配账号绑定 IP（uid，可选 province）
  */
 class Ai extends BaseController
@@ -857,6 +858,43 @@ class Ai extends BaseController
             'msg'  => 'ok',
             'data' => ['ip' => $bind['ip'], 'location' => $bind['location']],
         ]);
+    }
+
+    /**
+     * 帖子列表（AI 脚本随机选帖评论用）
+     *
+     * GET：page（页码，默认1）、page_size（每页 1-50，默认 20）
+     * 仅返回正常（status=1）帖子，按时间倒序；供 comment 脚本不指定 post_id 时随机挑选。
+     * 返回：data.list[] { id, content(截断200), comment_count, create_time }
+     */
+    public function postList()
+    {
+        if (!$this->checkToken()) {
+            return json(['code' => 401, 'msg' => 'AI token 无效']);
+        }
+
+        $page = max(1, (int) $this->request->get('page', 1));
+        $pageSize = min(50, max(1, (int) $this->request->get('page_size', 20)));
+
+        $rows = Db::name('post')
+            ->where('status', 1)
+            ->order('id', 'desc')
+            ->page($page, $pageSize)
+            ->field('id,content,comment_count,create_time')
+            ->select()
+            ->toArray();
+
+        $list = [];
+        foreach ($rows as $row) {
+            $list[] = [
+                'id'            => (int) $row['id'],
+                'content'       => mb_substr((string) $row['content'], 0, 200),
+                'comment_count' => (int) $row['comment_count'],
+                'create_time'   => (int) $row['create_time'],
+            ];
+        }
+
+        return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $list]]);
     }
 
     /**
