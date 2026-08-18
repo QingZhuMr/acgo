@@ -28,9 +28,12 @@ class Chat extends BaseController
     protected const PAGE_SIZE_MAX = 100;
 
     /**
-     * 获取 / 上传本人公钥（业务接口）
-     * GET：返回我的公钥（未上传返回 public_key=null）
-     * POST：public_key（base64）上传，覆盖旧值
+     * 获取 / 上传本人密钥（业务接口）
+     *
+     * GET：返回本人公钥；若无公钥则**自动生成 RSA-2048 密钥对**，私钥 AES 加密托管
+     *      （private_key_encrypted），保证对方总能拿到公钥加密发送（微信/QQ 离线可达方案）。
+     *      ?claim=1 时额外返回托管私钥（客户端首次领取后服务器置空托管私钥）。
+     * POST：public_key 上传（客户端本地生成的密钥，覆盖托管）
      */
     public function key()
     {
@@ -42,11 +45,9 @@ class Chat extends BaseController
 
         $isGet = 'GET' === strtoupper($this->request->method());
         if ($isGet) {
-            $row = Db::name('user_e2ee_key')->where('user_id', $uid)->find();
+            $claim = (int) $this->request->get('claim', 0) === 1;
             return json([
-                'code' => 0, 'msg' => 'ok', 'data' => [
-                    'public_key' => $row ? (string) $row['public_key'] : null,
-                ],
+                'code' => 0, 'msg' => 'ok', 'data' => $this->ensureKeyFor($uid, $claim),
             ]);
         }
 
@@ -105,6 +106,12 @@ class Chat extends BaseController
         $keys = [];
         foreach ($rows as $r) {
             $keys[(int) $r['user_id']] = (string) $r['public_key'];
+        }
+        // 无公钥的用户：自动生成（保证总能发送）
+        foreach ($ids as $id) {
+            if (!isset($keys[$id])) {
+                $keys[$id] = $this->ensureKeyFor($id)['public_key'] ?? '';
+            }
         }
         return json(['code' => 0, 'msg' => 'ok', 'data' => ['keys' => $keys]]);
     }
@@ -333,6 +340,115 @@ class Chat extends BaseController
     protected function chatId(int $a, int $b): string
     {
         return min($a, $b) . '_' . max($a, $b);
+    }
+
+    /**
+     * 确保某用户有公钥；无则自动生成 RSA-2048 密钥对并托管私钥
+     *
+     * @param int  $uid   用户 ID
+     * @param bool $claim 是否领取托管私钥（首次进入聊天时；领取后服务器清空托管私钥）
+     * @return array 返回 data：{ public_key, private_key?(claim=1且成功领取) }
+     */
+    protected function ensureKeyFor(int $uid, bool $claim = false): array
+    {
+        $row = Db::name('user_e2ee_key')->where('user_id', $uid)->find();
+
+        // 已有公钥
+        if ($row && (string) $row['public_key'] !== '') {
+            $data = ['public_key' => (string) $row['public_key']];
+            if ($claim && (string) ($row['private_key_encrypted'] ?? '') !== '') {
+                $priv = $this->decryptManaged($row['private_key_encrypted']);
+                if ($priv !== null && $priv !== '') {
+                    $data['private_key'] = $priv;
+                    // 领取后清空托管私钥（防止再次泄露）
+                    Db::name('user_e2ee_key')->where('user_id', $uid)->update([
+                        'private_key_encrypted' => null,
+                        'create_time'           => time(),
+                    ]);
+                }
+            }
+            return $data;
+        }
+
+        // 无公钥：自动生成密钥对
+        $pair = $this->generateRsaPair();
+        $encPriv = $this->encryptManaged($pair['private_key']);
+        if ($row) {
+            Db::name('user_e2ee_key')->where('user_id', $uid)->update([
+                'public_key'            => $pair['public_key'],
+                'private_key_encrypted' => $encPriv,
+                'create_time'           => time(),
+            ]);
+        } else {
+            Db::name('user_e2ee_key')->insert([
+                'user_id'               => $uid,
+                'public_key'            => $pair['public_key'],
+                'private_key_encrypted' => $encPriv,
+                'create_time'           => time(),
+            ]);
+        }
+
+        $data = ['public_key' => $pair['public_key']];
+        if ($claim) {
+            $data['private_key'] = $pair['private_key'];
+            // 领取后清空托管私钥
+            Db::name('user_e2ee_key')->where('user_id', $uid)->update([
+                'private_key_encrypted' => null,
+            ]);
+        }
+        return $data;
+    }
+
+    /** 生成 RSA-2048 密钥对（openssl 实现，PEM 格式） */
+    protected function generateRsaPair(): array
+    {
+        $res = openssl_pkey_new([
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ]);
+        if (!$res) {
+            return ['public_key' => '', 'private_key' => ''];
+        }
+        $privPem = '';
+        $pubPem  = '';
+        openssl_pkey_export($res, $privPem);
+        $details = openssl_pkey_get_details($res);
+        if ($details && isset($details['key'])) {
+            $pubPem = (string) $details['key'];
+        }
+        return ['public_key' => $pubPem, 'private_key' => $privPem];
+    }
+
+    /**
+     * 托管私钥加密（AES-256-GCM，密钥来自 .env CHAT_KEY_MASTER 或派生）
+     */
+    protected function encryptManaged(string $plain): string
+    {
+        $master = (string) env('CHAT_KEY_MASTER', 'acgo_chat_master_2026!');
+        $key = hash('sha256', $master, true);
+        $iv  = random_bytes(12);
+        $tag = '';
+        $cipher = openssl_encrypt($plain, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+        if ($cipher === false) {
+            return '';
+        }
+        return base64_encode($iv . $tag . $cipher);
+    }
+
+    /** 托管私钥解密 */
+    protected function decryptManaged(string $b64): ?string
+    {
+        $raw = base64_decode($b64, true);
+        if ($raw === false || strlen($raw) < 29) {
+            return null;
+        }
+        $iv     = substr($raw, 0, 12);
+        $tag    = substr($raw, 12, 16);
+        $cipher = substr($raw, 28);
+        $master = (string) env('CHAT_KEY_MASTER', 'acgo_chat_master_2026!');
+        $key = hash('sha256', $master, true);
+        $plain = openssl_decrypt($cipher, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+        return $plain === false ? null : $plain;
     }
 
     /**
