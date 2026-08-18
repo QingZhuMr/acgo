@@ -376,6 +376,27 @@
 
 **返回 data**：`list[]`（字段同广场列表：`id, user_id, nickname, avatar, content, images[], comment_count, like_count, is_liked, is_favorited(恒为 false——自己的帖子不能收藏), favorite_count, create_time, create_time_text, location`）、`page`、`visible(1可见 0对方设为仅自己可见)`
 
+### 3.10 聊天（业务，第二期，E2EE）
+
+> **安全模型**：端到端加密——消息体 `body` 为 AES-GCM 密文，`enc_key` 为 RSA-OAEP 加密后的 AES 密钥，**服务器仅存储/转发密文，无法解密**（零知识）。仅**好友（互相关注）**可聊天；服务器保留密文 **30 天**自动清理；`client_msg_id` 客户端幂等去重。接口见 `docs/聊天系统设计.md`。
+
+**上传/获取公钥**：`POST /api/chat/key`（上传 `public_key`） / `GET /api/chat/key`（获取）
+- 返回 data：`public_key`（未上传为 null）
+
+**批量获取用户公钥**：`POST /api/chat/keys`
+- 参数：`user_ids`（逗号分隔）
+- 返回 data：`keys{ user_id: public_key }`
+
+**发送消息**：`POST /api/chat/send`
+- 参数：`receiver_id`、`msg_type`（默认1）、`body`（密文）、`nonce`、`ephemeral_pub`（加密后的 AES 密钥）、`client_msg_id`
+- 校验：仅好友可发；`client_msg_id` 幂等
+- 返回 data：`id`、`create_time`；成功后 WS 推送 `chat_message`（密文透传）
+- 30 天过期：`expire_time = create_time + 2592000`
+
+**拉取会话历史**：`GET /api/chat/history`
+- 参数：`peer_id`、`before_id`（游标）、`page_size`（默认50最大100）
+- 返回 data：`list[]`（密文消息，按 id 倒序）
+
 ### 3.10 评论点赞 / 取消（切换，业务）
 
 - **路径**：`POST /api/post/commentLike`
@@ -589,6 +610,8 @@
 > **维护推送机制**：后台系统设置开启/关闭维护并保存时，向 `push_queue` 写入广播（user_id=0），Swoole 轮询推送给所有在线客户端。客户端收到后实时展示/移除维护公告（**不强制退出登录**）。
 
 > **通知推送机制**：`post/comment` 写入评论后同步写入 `notification` 表（不存触发者昵称/头像冗余快照），并经 `Pusher::send` 向被回复人推送 `reply_notice`（推送体携带实时昵称/头像供立即展示）。客户端收到后弹出应用内/系统通知并刷新铃铛角标；离线时通过定时轮询 `notification/unreadCount` 兜底补齐。
+>
+> **type=3 被关注通知**：`user/follow` 关注成功时给被关注者落库 `notification`（type=3）+ WS 推送 `follow_notice`；通知列表展示「xx 关注了你」，点击跳转**关注人的个人主页**。
 
 ---
 
