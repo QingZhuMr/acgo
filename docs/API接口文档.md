@@ -180,6 +180,17 @@
 - 参数：`target_uid`
 - 返回 data：`is_following`、`is_mutual`
 
+**我关注的列表**：`GET /api/user/following`
+- 参数：`page`、`page_size`（默认 20，最大 50）
+- 返回 data：`list[]{ user_id, nickname, avatar, follow_time, is_mutual }`、`page`、`total`、`has_more`
+
+**我的粉丝列表**：`GET /api/user/followers`
+- 参数：`page`、`page_size`
+- 返回 data：同上（`is_mutual` = 我是否也关注了对方）
+
+**关注统计**：`GET /api/user/followCounts`
+- 返回 data：`following`（关注数）、`followers`（粉丝数）、`friends`（互相关注数）
+
 ### 1.9 修改密码（业务）
 
 - **路径**：`POST /api/user/changePassword`
