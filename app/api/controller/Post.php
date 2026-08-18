@@ -740,7 +740,7 @@ class Post extends BaseController
      * @param array|null $size 输出参数：保存成功后写入 [宽, 高]
      * @return string|null 访问 URL（失败返回 null）
      */
-    private static function saveCompressedImage($file, int $uid, string $dir, string $prefix, int $maxBytes, int $maxDim = 0, ?array &$size = null): ?string
+    public static function saveCompressedImage($file, int $uid, string $dir, string $prefix, int $maxBytes, int $maxDim = 0, ?array &$size = null): ?string
     {
         $base = app()->getRootPath() . trim($dir, '/');
         if (!is_dir($base)) {

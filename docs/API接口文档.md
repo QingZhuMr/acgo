@@ -603,12 +603,14 @@
 X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 ```
 
-> 用途：本地自动化脚本（机器人灌帖/评论等）直接调用，无需模拟客户端签名与登录流程。
+> 用途：本地自动化脚本（机器人灌帖/评论/互动等）直接调用，无需模拟客户端签名与登录流程。
+
+**绑定 IP 规则**：批量建号时为每个账号分配**固定随机国内 IP**（`app/common/AiIpPool.php`，内置 31 省运营商段，含省份归属地），存 `user.bind_ip` / `user.bind_location`。AI 发帖/回帖一律使用该账号绑定 IP 落库（`post.ip` / `post_comment.ip`），保证同账号 IP 恒定、账号间分散全国。可用 `rebindIp` 重绑。
 
 ### 12.1 批量创建用户
 
 - **路径**：`POST /api/ai/batchCreate`
-- **功能**：批量创建机器人/种子账号，手机号从 `10000000001` 起始递增（格式正确 11 位、不占用真实手机号段、不冲突）。
+- **功能**：批量创建机器人/种子账号，手机号从 `10000000001` 起始递增（格式正确 11 位、不占用真实手机号段、不冲突）；每个账号自动分配固定随机国内 IP。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -616,7 +618,7 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | count | int | 是 | 创建数量 1-50 |
 | password | string | 否 | 统一密码，默认 `123456`（≥6位） |
 
-**返回 data**：`accounts[] { id, nickname, phone, password }`
+**返回 data**：`accounts[] { id, nickname, phone, password, ip, location }`
 
 ### 12.2 上传头像
 
@@ -629,6 +631,111 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | avatar | file | 是 | 头像图片（png/jpg/jpeg/gif/webp，≤5MB） |
 
 **返回 data**：`avatar`（相对路径，如 `/static/avatar/ai_22.png`）
+
+### 12.3 AI 发帖
+
+- **路径**：`POST /api/ai/publish`（multipart）
+- **功能**：以指定账号发布帖子，文字审核/图片压缩与前台一致；IP/归属地取该账号绑定 IP。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uid | int | 是 | 发帖账号 id |
+| content | string | 是 | 正文，≤2000 字 |
+| images | file[] | 否 | 图片，≤5 张，≤10MB/张（jpg/png/gif/webp/bmp） |
+
+**返回 data**：`post_id`
+
+### 12.4 AI 回帖/评论
+
+- **路径**：`POST /api/ai/comment`（multipart）
+- **功能**：以指定账号评论/回复（支持楼中楼）；与前台一致生成通知 + WS 推送（可用 `notify=0` 关闭）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uid | int | 是 | 评论账号 id |
+| post_id | int | 是 | 目标帖子 id |
+| content | string | 是 | 评论内容，≤500 字 |
+| parent_id | int | 否 | 楼中楼父评论 id，默认 0（顶层） |
+| reply_to_uid | int | 否 | 楼中楼回复目标用户 id（不传则取父评论作者） |
+| images | file[] | 否 | 图片，≤1 张，≤10MB/张 |
+| notify | int | 否 | 是否通知帖子作者/被回复人，默认 1 |
+
+**返回 data**：`comment_id`
+
+### 12.5 AI 帖子点赞
+
+- **路径**：`POST /api/ai/like`
+- **功能**：点赞/取消点赞（切换），不能给自己的帖子点赞；首次点赞默认通知作者。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uid | int | 是 | 点赞账号 id |
+| post_id | int | 是 | 目标帖子 id |
+| notify | int | 否 | 是否通知帖子作者，默认 1 |
+
+**返回 data**：`is_liked`、`like_count`
+
+### 12.6 AI 帖子收藏
+
+- **路径**：`POST /api/ai/favorite`
+- **功能**：收藏/取消收藏（切换），不能收藏自己的帖子；首次收藏默认通知作者。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uid | int | 是 | 收藏账号 id |
+| post_id | int | 是 | 目标帖子 id |
+| notify | int | 否 | 是否通知帖子作者，默认 1 |
+
+**返回 data**：`is_favorited`、`favorite_count`
+
+### 12.7 AI 评论点赞
+
+- **路径**：`POST /api/ai/commentLike`
+- **功能**：评论点赞/取消点赞（切换），不能给自己的评论点赞。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uid | int | 是 | 点赞账号 id |
+| comment_id | int | 是 | 目标评论 id |
+
+**返回 data**：`is_liked`、`like_count`
+
+### 12.8 AI 关注/取关
+
+- **路径**：`POST /api/ai/follow`
+- **功能**：关注/取关（切换），拉黑互斥、不能关注自己，规则与前台一致；关注时默认通知对方。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uid | int | 是 | 发起账号 id |
+| target_uid | int | 是 | 目标用户 id |
+| notify | int | 否 | 是否通知被关注人，默认 1 |
+
+**返回 data**：`is_following`、`is_mutual`
+
+### 12.9 查询账号信息
+
+- **路径**：`GET /api/ai/accounts?uid=1,2,3` 或 `?phone=10000000001`
+- **功能**：查询账号信息（含绑定 IP），最多 100 条。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uid | string | 二选一 | 单个或逗号分隔多个用户 id |
+| phone | string | 二选一 | 单个手机号 |
+
+**返回 data**：`accounts[] { id, nickname, phone, avatar, status, bind_ip, bind_location }`
+
+### 12.10 重新绑定 IP
+
+- **路径**：`POST /api/ai/rebindIp`
+- **功能**：给指定账号重新分配绑定 IP（可指定省份）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uid | int | 是 | 目标账号 id |
+| province | string | 否 | 指定省份（如 `广东`），不传随机省份 |
+
+**返回 data**：`ip`、`location`
 - **折叠聚合**（未读）：同目标多条未读合并为一条——键 `type + post_id + comment_id`（type=3 关注全部合并）：
   - `from_nickname` 为「昵称1、昵称2等N人」（最多前 2 个昵称 + 等N人）
   - `id_list`：聚合内通知 id 数组（点击标已读/删除用）；`from_uids`：触发者 uid 数组；`count`：聚合条数
