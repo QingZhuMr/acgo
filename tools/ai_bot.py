@@ -54,9 +54,19 @@ def _env_token():
 API_BASE = os.environ.get('ACGO_API_BASE', 'https://api.yeahbear.cn')
 AI_TOKEN = _env_token()
 
-AVATAR_STYLE = 'lorelei'   # dicebear 风格：lorelei/pixel-art/avataaars/bottts/thumbs
+# 头像来源：
+#   - photo   真人照片（randomuser.me 官方头像库，随机男女，风格最自然多样）
+#   - pravatar 真人照片（i.pravatar.cc，真人头像库）
+#   - mix     随机混合：真人照片 + dicebear 多风格卡通（风格最分散）
+#   - lorelei/pixel-art/avataaars/bottts/thumbs  dicebear 指定卡通风格
+AVATAR_STYLE = 'photo'     # 默认真人照片（原 lorelei 卡通风格太统一）
 AVATAR_SIZE = 256
 TIMEOUT = 20
+
+# dicebear 卡通风格列表（mix 时随机挑选）
+DICEBEAR_STYLES = ['lorelei', 'pixel-art', 'avataaars', 'bottts', 'thumbs', 'adventurer', 'big-ears', 'croodles']
+# pravatar 真人头像可用编号范围
+PRAVATAR_MAX = 70
 
 # 内置默认帖子素材（无文件时使用；格式：[标题\n正文...]，随机拼接）
 DEFAULT_POSTS = [
@@ -126,9 +136,11 @@ class AiApi:
     def batch_create(self, prefix, count, password):
         return self.post('batchCreate', data={'prefix': prefix, 'count': count, 'password': password})
 
-    def upload_avatar(self, uid, img_bytes):
+    def upload_avatar(self, uid, img_bytes, ext='png'):
+        ext = ext.lower() if ext else 'png'
+        mime = 'image/jpeg' if ext in ('jpg', 'jpeg') else 'image/png'
         return self.post('uploadAvatar', data={'uid': uid},
-                         files={'avatar': ('avatar.png', img_bytes, 'image/png')})
+                         files={'avatar': (f'avatar.{ext}', img_bytes, mime)})
 
     def publish(self, uid, content, images=None):
         data = {'uid': uid, 'content': content}
@@ -196,12 +208,65 @@ def read_lines(path, default):
     return default
 
 
+def _get(url, headers=None):
+    try:
+        r = requests.get(url, timeout=TIMEOUT, headers=headers)
+        if r.status_code == 200 and r.content:
+            return r.content
+    except Exception:
+        pass
+    return None
+
+
+# 常见浏览器 UA（部分图片站有反爬）
+_BROWSER_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+               '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36')
+
+
+def _randomuser_photo(seed):
+    """randomuser.me 官方真人头像库：男女随机，同一 seed 稳定对应同一张"""
+    # 0-99 索引，男女各 100 张；seed 决定男女与编号，保证同账号头像固定
+    male = (int(seed) * 7 + 3) % 2 == 0
+    idx = (int(seed) * 13 + 5) % 100
+    gender = 'men' if male else 'women'
+    return _get(f'https://randomuser.me/api/portraits/{gender}/{idx}.jpg'), 'jpg'
+
+
+def _pravatar_photo(seed):
+    """pravatar.cc 真人头像库（1-70 编号）；失败回退 randomuser.me"""
+    idx = (int(seed) * 17 + 9) % PRAVATAR_MAX + 1
+    img = _get(f'https://i.pravatar.cc/{AVATAR_SIZE}?img={idx}', {'User-Agent': _BROWSER_UA})
+    if img:
+        return img, 'jpg'
+    # pravatar.cc 有反爬（403）时回退到稳定的 randomuser.me
+    return _randomuser_photo(seed)
+
+
+def _dicebear(seed, style):
+    url = f'https://api.dicebear.com/9.x/{style}/png?seed={seed}&size={AVATAR_SIZE}'
+    return _get(url), 'png'
+
+
 def download_avatar(seed, style=AVATAR_STYLE, size=AVATAR_SIZE):
-    url = f'https://api.dicebear.com/9.x/{style}/png?seed={seed}&size={size}'
-    r = requests.get(url, timeout=TIMEOUT)
-    if r.status_code != 200:
-        return None
-    return r.content
+    """下载头像，返回 (bytes, ext)。失败返回 (None, '')。
+
+    style:
+      - photo / pravatar 真人照片
+      - mix：随机混合真人照片 + dicebear 多风格卡通（风格最分散）
+      - 其他（lorelei/pixel-art/...）视为 dicebear 指定风格
+    """
+    style = (style or '').strip().lower()
+    if style == 'photo':
+        return _randomuser_photo(seed)
+    if style == 'pravatar':
+        return _pravatar_photo(seed)
+    if style == 'mix':
+        # 50% 真人照片，50% 随机 dicebear 卡通风格
+        if random.random() < 0.5:
+            return _randomuser_photo(seed)
+        return _dicebear(seed, random.choice(DICEBEAR_STYLES))
+    # dicebear 指定风格（默认 photo，容错未知风格）
+    return _dicebear(seed, style)
 
 
 def pick_accounts(accounts, max_n, shuffle=True):
@@ -225,24 +290,24 @@ def cmd_create(args):
     for a in accounts:
         print(f'    id={a["id"]} {a["nickname"]} phone={a["phone"]} ip={a["ip"]}({a["location"]})')
 
-    # 可选上传头像
+    # 可选上传头像（默认 photo=真人照片；lorelei/pixel-art/...=dicebear 卡通；mix=随机混合）
     if args.avatar:
-        print(f'[*] 下载并上传头像（风格: {args.avatar}）...')
+        print(f'[*] 下载并上传头像（来源: {args.avatar}）...')
         for a in accounts:
             try:
-                img = download_avatar(f'bot{a["id"]}', args.avatar)
-                if img is None:
+                img, ext = download_avatar(a['id'], args.avatar)
+                if not img:
                     print(f'  [!!] {a["nickname"]} 头像下载失败')
                     a['avatar'] = ''
                     continue
-                jj = api.upload_avatar(a['id'], img)
+                jj = api.upload_avatar(a['id'], img, ext)
                 if jj.get('code') == 0:
                     a['avatar'] = jj['data']['avatar']
                     print(f'  [ok] {a["nickname"]} -> {a["avatar"]}')
                 else:
                     print(f'  [!!] {a["nickname"]} 头像上传失败: {jj.get("msg")}')
                     a['avatar'] = ''
-                random_delay(0.5, 1.0)
+                random_delay(0.3, 0.6)
             except Exception as e:
                 print(f'  [!!] {a["nickname"]} 头像异常: {e}')
                 a['avatar'] = ''
@@ -399,7 +464,8 @@ def main():
     p.add_argument('--prefix', required=True, help='昵称前缀（昵称=前缀+序号）')
     p.add_argument('--count', type=int, required=True, help='创建数量 1-50')
     p.add_argument('--password', default='123456', help='统一密码，默认 123456')
-    p.add_argument('--avatar', default='', help='头像风格（lorelei/pixel-art/avataaars/bottts/thumbs），空=不传头像')
+    p.add_argument('--avatar', default=AVATAR_STYLE,
+                   help='头像来源：photo(真人照片,默认)/pravatar(真人)/mix(真人+卡通随机混合)/lorelei/pixel-art/avataaars/bottts/thumbs 等 dicebear 风格；空字符串=不传头像')
     p.add_argument('--save', default='accounts.json', help='账号信息保存文件，默认 accounts.json')
     p.set_defaults(fn=cmd_create)
 
