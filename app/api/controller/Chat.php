@@ -460,7 +460,8 @@ class Chat extends BaseController
             })
             ->order('id', 'asc')
             ->limit($limit)
-            ->select();
+            ->select()
+            ->toArray();
 
         $list = array_map(function ($r) {
             return [
