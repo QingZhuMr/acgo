@@ -226,8 +226,16 @@ class User extends BaseController
         $user = Db::name('user')->where('id', $id)->find();
         if (!$user) return json(['code' => 1, 'msg' => '用户不存在']);
 
-        $nickname = trim((string) $this->request->post('nickname', ''));
-        $avatar   = trim((string) $this->request->post('avatar', ''));
+        $nicknameRaw = $this->request->post('nickname', '');
+        $avatarRaw   = $this->request->post('avatar', '');
+
+        // 防御：layui 表单字段偶发序列化成数组（如 avatar[]），直接报友好错误，避免 PHP 转数组 500
+        if (!is_string($nicknameRaw) || !is_string($avatarRaw)) {
+            return json(['code' => 1, 'msg' => '提交参数格式错误，请重试']);
+        }
+
+        $nickname = trim($nicknameRaw);
+        $avatar   = trim($avatarRaw);
 
         if ('' === $nickname) return json(['code' => 1, 'msg' => '昵称不能为空']);
 

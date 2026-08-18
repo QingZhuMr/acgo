@@ -266,13 +266,14 @@ layui.use(['table', 'form', 'layer', 'upload'], function () {
                     var cur = data.avatar || '/static/admin/img/default-avatar.png';
                     $('#frmAvatarPreview').attr('src', cur);
                     // 上传头像：成功后仅回显预览，不立即落库（点"确定"时随表单提交）
-                    // 注意：layui upload 默认文件字段名为 file，后端按 avatar 读取，必须指定 field
+                    // 注意：upload 的 field 用默认 file（后端兼容 avatar/file 双字段）。
+                    // 绝不能把 field 设成 avatar——会与下方 hidden #frmAvatar(name=avatar) 重名，
+                    // 导致 layui 表单序列化出 avatar[] 数组 → 后端 (string)数组 抛 500。
                     // id 通过 URL 参数传（layui upload 的 data 在不同版本支持不一，URL 参数最稳）
                     upload.render({
                         elem: '#btnUploadAvatar',
                         url: '/user/uploadAvatar?id=' + $('#frmId').val(),
                         accept: 'images',
-                        field: 'avatar',
                         auto: true,
                         done: function (res) {
                             if (res.code === 0 && res.data && res.data.avatar) {
