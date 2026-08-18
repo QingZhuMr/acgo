@@ -4,6 +4,7 @@ declare (strict_types = 1);
 namespace app\api\controller;
 
 use app\BaseController;
+use app\common\ImageProcessor;
 use app\common\Pusher;
 use think\facade\Db;
 
@@ -391,6 +392,32 @@ class Chat extends BaseController
     }
 
     /**
+     * 聊天图片上传（业务接口）
+     * multipart/form-data：字段 image
+     *
+     * 图片压缩保存到 public/static/chat/（最大边 1080px，≤512KB），
+     * 返回相对 URL（客户端将其加密为消息 body 发送，接收方解密后渲染）。
+     */
+    public function upload()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $file = $this->request->file('image');
+        if (!$file) {
+            return json(['code' => 1, 'msg' => '未接收到图片']);
+        }
+        $url = self::saveChatImage($file, $uid);
+        if ($url === null) {
+            return json(['code' => 1, 'msg' => '图片处理失败']);
+        }
+        return json(['code' => 0, 'msg' => 'ok', 'data' => ['url' => $url]]);
+    }
+
+    /**
      * 断线增量同步（业务接口）
      * GET：after_id（本地最大消息 id 游标，默认 0）、limit（默认 50，最大 100）
      *
@@ -447,7 +474,54 @@ class Chat extends BaseController
      */
     protected function chatId(int $a, int $b): string
     {
-        return min($a, $b) . '_' . max($a, $b);
+        return $a < $b ? "{$a}_{$b}" : "{$b}_{$a}";
+    }
+
+    /**
+     * 保存聊天图片：压缩（最大边 1080 / ≤512KB）→ 按字节头探测扩展名 → 落盘
+     *
+     * @return string|null 访问 URL（如 /static/chat/m12_xxx.jpg），失败返回 null
+     */
+    private static function saveChatImage($file, int $uid): ?string
+    {
+        $base = app()->getRootPath() . 'public/static/chat';
+        if (!is_dir($base)) {
+            @mkdir($base, 0755, true);
+        }
+        $srcPath = $file->getPathname();
+        if ($srcPath === '' || !is_file($srcPath)) {
+            return null;
+        }
+        $bytes = ImageProcessor::compressToMaxBytes($srcPath, 512 * 1024, 1080);
+        if ($bytes === '') {
+            return null;
+        }
+        $ext = self::detectImageExt($bytes) ?: 'jpg';
+        $name = 'm' . $uid . '_' . date('YmdHis') . '_' . substr(md5((string) microtime(true) . rand()), 0, 8) . '.' . $ext;
+        $target = $base . DIRECTORY_SEPARATOR . $name;
+        if (@file_put_contents($target, $bytes) === false) {
+            return null;
+        }
+        @chmod($target, 0666 & ~umask());
+        return '/static/chat/' . $name;
+    }
+
+    /** 根据字节头判定图片扩展名 */
+    private static function detectImageExt(string $bytes): string
+    {
+        if (strlen($bytes) >= 8 && substr($bytes, 0, 8) === "\x89PNG\r\n\x1a\n") {
+            return 'png';
+        }
+        if (strlen($bytes) >= 6 && (substr($bytes, 0, 6) === 'GIF87a' || substr($bytes, 0, 6) === 'GIF89a')) {
+            return 'gif';
+        }
+        if (strlen($bytes) >= 4 && substr($bytes, 0, 4) === 'RIFF' && substr($bytes, 8, 4) === 'WEBP') {
+            return 'webp';
+        }
+        if (strlen($bytes) >= 2 && ord($bytes[0]) === 0xFF && ord($bytes[1]) === 0xD8) {
+            return 'jpg';
+        }
+        return '';
     }
 
     /**

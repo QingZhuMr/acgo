@@ -414,6 +414,11 @@
 - 功能：返回 `after_id` 之后当前用户**参与（发送或接收）**的所有未过期消息，按 id 升序；客户端用于**离线期间的漏消息补偿**（WS 重连后拉取），与 WS 推送共用同一套解密入库逻辑
 - 返回 data：`list[]`（同 history 消息结构）、`server_time`
 
+**聊天图片上传**：`POST /api/chat/upload`
+- multipart/form-data：字段 `image`
+- 功能：图片压缩保存到 `public/static/chat/`（最大边 1080px、≤512KB），返回相对 URL；客户端将 URL 作为 JSON（`{"url":"..."}`）**加密为消息 body** 发送（`msg_type=2`），接收方解密后渲染图片
+- 返回 data：`{ url }`
+
 ### 3.10 评论点赞 / 取消（切换，业务）
 
 - **路径**：`POST /api/post/commentLike`
