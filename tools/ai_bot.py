@@ -207,10 +207,11 @@ class DeepSeek:
     """DeepSeek 大模型客户端（用于 AI 生成帖子内容 / 评论 / 点赞判断）
 
     依赖 .env 的 DEEPSEEK_API_KEY（或环境变量），未配置时仅提示不自动退出。
-    模型默认 deepseek-chat（V3）；可用 DEEPSEEK_MODEL 环境变量覆盖。
+    模型默认 deepseek-v4-flash（V4 Flash，快速免深度思考版）；
+    可用 DEEPSEEK_MODEL 环境变量覆盖。
     """
 
-    MODEL = os.environ.get('DEEPSEEK_MODEL', 'deepseek-chat')
+    MODEL = os.environ.get('DEEPSEEK_MODEL', 'deepseek-v4-flash')
     MAX_TOKENS = 512
     TIMEOUT = 60
 
@@ -559,23 +560,11 @@ def _find_post(api, post_id):
 
 # ---------- DeepSeek AI 辅助 ----------
 
-_DS_SYS_PUBLISH = (
-    '你是一个活跃的动漫社区用户，正在发帖。请根据给定的动漫主题/类型写一条真实、'
-    '口语化的中文帖子内容（30-150字），像普通用户分享心情/安利/吐槽，'
-    '自然一点，不要出现"作为AI""首先其次"之类机械表达，不要 emoji 堆砌。'
-    '直接输出帖子正文，不要加标题、引号或其他前缀。'
-)
+_DS_SYS_PUBLISH = '你是动漫社区用户，发条自然的帖子（30-150字），直接输出正文。'
 
-_DS_SYS_COMMENT = (
-    '你是一个动漫社区用户，正在评论别人的帖子。请针对帖子内容写一条自然、贴合语境的'
-    '中文评论（5-60字），口语化，带一点真实用户的口吻，不要AI痕迹，不要机械套话，'
-    '不要出现"作为AI"等。直接输出评论内容，不要引号或前缀。'
-)
+_DS_SYS_COMMENT = '你是动漫社区用户，针对帖子内容写条自然评论（5-60字），直接输出。'
 
-_DS_SYS_LIKE = (
-    '你是一个动漫社区用户，判断帖子内容是否值得点赞。'
-    '只输出"是"或"否"两个字的判断，不要其他任何内容。'
-)
+_DS_SYS_LIKE = '值得点赞吗？只回答"是"或"否"。'
 
 
 def _ai_publish_content(ai, genre):
