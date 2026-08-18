@@ -91,6 +91,62 @@ class Sticker extends BaseController
     }
 
     /**
+     * 添加到表情（业务接口）：收藏聊天中收到的表情包到自己的表情库
+     * POST：url（表情相对路径，如 /static/sticker/xx.png）
+     *
+     * 校验 url 必须是平台已有表情包（sticker 表存在该 url），复制宽高/MIME
+     * 创建一条自己名下的记录（软引用：图片文件不复制，删除收藏不影响他人）。
+     * 已添加过则幂等返回成功。
+     */
+    public function add()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $url = (string) $this->request->post('url', '');
+        if ($url === '' || strpos($url, '/static/sticker/') !== 0) {
+            return json(['code' => 1, 'msg' => '表情包无效']);
+        }
+
+        // 源表情必须存在于平台（保证收藏的是有效表情）
+        $src = Db::name('sticker')
+            ->where('url', $url)
+            ->order('id', 'asc')
+            ->find();
+        if (!$src) {
+            return json(['code' => 1, 'msg' => '表情包不存在或已失效']);
+        }
+
+        // 已添加过：幂等返回成功
+        $mine = Db::name('sticker')
+            ->where('user_id', $uid)
+            ->where('url', $url)
+            ->where('status', 1)
+            ->find();
+        if ($mine) {
+            return json(['code' => 0, 'msg' => '已添加到表情包', 'data' => ['id' => (int) $mine['id']]]);
+        }
+
+        Db::name('sticker')->insert([
+            'user_id'     => $uid,
+            'url'         => $url,
+            'width'       => (int) $src['width'],
+            'height'      => (int) $src['height'],
+            'size'        => (int) $src['size'],
+            'mime'        => (string) $src['mime'],
+            'status'      => 1,
+            'create_time' => time(),
+        ]);
+        // 列表缓存失效
+        StickerCache::forget();
+
+        return json(['code' => 0, 'msg' => '已添加到表情包']);
+    }
+
+    /**
      * 上传表情包（业务接口）
      *
      * 接收方式：raw body（`application/octet-stream`），文件内容即原始字节，
