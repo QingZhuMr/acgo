@@ -77,8 +77,10 @@ class Post extends BaseController
         }
 
         // 列表不返回 heat（热度为后台隐性推荐因子，不对用户展示）
-        // 排序：搜索时按时间倒序；浏览时用热度权重随机推荐
-        $order = '' !== $keyword ? 'create_time DESC' : 'RAND() * (heat + 1) DESC';
+        // 排序：搜索时按时间倒序；浏览时用热度权重随机推荐。
+        // 热度取 0.35 次幂削弱权重：高热度帖子出现概率大，但不再"必然霸榜"，
+        // 随机性让低热度帖子也有机会靠前（原 RAND()*(heat+1) 热度压制过强）。
+        $order = '' !== $keyword ? 'create_time DESC' : 'RAND() * POWER(heat + 1, 0.35) DESC';
         $list = $query
             ->field('id,user_id,content,images,image_sizes,comment_count,create_time,location')
             ->orderRaw($order)
