@@ -8,14 +8,15 @@ use think\facade\Cache;
 use think\facade\Db;
 
 /**
- * 表情包列表缓存
+ * 表情包列表缓存（按用户维度）
  *
- * 背景：`sticker/list` 返回全局正常表情包列表（≤200 条），所有用户看到的内容
- * 相同（仅 is_mine 按当前用户区分），且变化极低频（仅上传/删除时变）。因此
- * 将列表本体缓存进 Redis（TTL 10 分钟），请求时只缓存一次查库，is_mine 在
- * 返回时按 uid 实时计算（不入缓存）。
+ * 背景：`sticker/list` 返回**当前用户自己的**表情包列表（自己上传的 + 收藏的，
+ * ≤200 条），不同用户看到的内容互不相同（账号隔离）。变化极低频（仅本人
+ * 上传/删除/收藏时变）。因此按用户维度将列表本体缓存进 Redis
+ * （key 含 uid，TTL 10 分钟），防不同账号串号。
  *
- * 失效时机：sticker/upload 与 sticker/delete 后调用 forget()。
+ * 失效时机：sticker/upload、sticker/delete、sticker/add 后调用 forget()
+ * （清空所有用户的 key，简单可靠——Redis KEYS 通配匹配）。
  *
  * 降级：Redis 不可用（无 phpredis / 未启动 / 连接失败）时自动直查库，业务不受影响。
  */
@@ -27,23 +28,24 @@ class StickerCache
     /** Redis 缓存 store 名（对应 config/cache.php 的 redis 连接） */
     public const STORE = 'redis';
 
-    /** 缓存 key */
-    public const KEY = 'acgo:sticker:list';
+    /** 缓存 key 前缀（完整 key = 前缀 + uid） */
+    public const KEY_PREFIX = 'acgo:sticker:list:';
 
     /** 是否已确认 Redis 不可用 */
     private static bool $redisDown = false;
 
     /**
-     * 获取表情包列表（缓存优先，未命中查库并回填）
+     * 获取指定用户的表情包列表（缓存优先，未命中查库并回填）
      *
      * @return array<int, array{id:int,user_id:int,url:string,width:int,height:int,mime:string}>
      */
-    public static function get(): array
+    public static function get(int $uid): array
     {
+        $key = self::KEY_PREFIX . $uid;
         $cache = self::cache();
         if ($cache) {
             try {
-                $data = $cache->get(self::KEY);
+                $data = $cache->get($key);
                 if (is_array($data)) {
                     return $data;
                 }
@@ -52,7 +54,9 @@ class StickerCache
             }
         }
 
+        // 账号隔离：只查当前用户自己的表情包（上传的 + 收藏的）
         $rows = Db::name('sticker')
+            ->where('user_id', $uid)
             ->where('status', 1)
             ->field('id,user_id,url,width,height,mime')
             ->order('create_time', 'desc')
@@ -74,7 +78,7 @@ class StickerCache
 
         if ($cache) {
             try {
-                $cache->set(self::KEY, $list, self::TTL);
+                $cache->set($key, $list, self::TTL);
             } catch (\Throwable $e) {
                 self::$redisDown = true;
             }
@@ -84,9 +88,12 @@ class StickerCache
     }
 
     /**
-     * 清除表情包列表缓存（上传/删除后调用，立即生效）
+     * 清除指定用户的表情包列表缓存（上传/删除/收藏后调用，立即生效）
+     *
+     * 只清该用户自己的 key——上传/删除/收藏均只影响本人列表，
+     * 无需（也无法在 Driver 抽象层）枚举其他用户的 key。
      */
-    public static function forget(): void
+    public static function forget(int $uid): void
     {
         if (self::$redisDown) {
             return;
@@ -96,7 +103,7 @@ class StickerCache
             return;
         }
         try {
-            $cache->delete(self::KEY);
+            $cache->delete(self::KEY_PREFIX . $uid);
         } catch (\Throwable $e) {
             self::$redisDown = true;
         }

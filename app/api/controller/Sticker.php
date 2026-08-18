@@ -28,10 +28,11 @@ class Sticker extends BaseController
     protected const MIME_ALLOWED = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
     /**
-     * 表情包列表（业务接口）：全局正常表情包，按时间倒序
+     * 表情包列表（业务接口）：**按账号隔离**，仅返回当前用户自己的表情包
+     * （自己上传的 + 收藏的），按时间倒序。
      *
-     * 列表本体走 StickerCache（Redis 缓存，TTL 10 分钟）；is_mine 按当前用户
-     * 实时计算（不入缓存）。上传/删除后缓存自动失效。
+     * 列表本体按用户维度走 StickerCache（Redis 缓存，TTL 10 分钟，
+     * key 含 uid 防串号）。上传/删除/收藏后缓存自动失效。
      */
     public function list()
     {
@@ -41,7 +42,7 @@ class Sticker extends BaseController
         }
         $uid = (int) $device['user_id'];
 
-        $rows = StickerCache::get();
+        $rows = StickerCache::get($uid);
 
         $list = [];
         foreach ($rows as $r) {
@@ -51,7 +52,7 @@ class Sticker extends BaseController
                 'width'   => (int) $r['width'],
                 'height'  => (int) $r['height'],
                 'mime'    => (string) $r['mime'],
-                'is_mine' => (int) $r['user_id'] === $uid,
+                'is_mine' => true,
             ];
         }
         return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $list]]);
@@ -84,8 +85,8 @@ class Sticker extends BaseController
         // 软删（保留历史评论中引用图片可继续访问；若物理删除，历史评论里的表情会失效）
         Db::name('sticker')->where('id', $stickerId)->update(['status' => 0]);
 
-        // 列表缓存失效
-        StickerCache::forget();
+        // 列表缓存失效（仅本人）
+        StickerCache::forget($uid);
 
         return json(['code' => 0, 'msg' => '删除成功']);
     }
@@ -140,8 +141,8 @@ class Sticker extends BaseController
             'status'      => 1,
             'create_time' => time(),
         ]);
-        // 列表缓存失效
-        StickerCache::forget();
+        // 列表缓存失效（仅本人）
+        StickerCache::forget($uid);
 
         return json(['code' => 0, 'msg' => '已添加到表情包']);
     }
@@ -224,8 +225,8 @@ class Sticker extends BaseController
             'create_time' => time(),
         ]);
 
-        // 列表缓存失效
-        StickerCache::forget();
+        // 列表缓存失效（仅本人）
+        StickerCache::forget($uid);
 
         return json(['code' => 0, 'msg' => '上传成功', 'data' => [
             'id'     => (int) $id,
