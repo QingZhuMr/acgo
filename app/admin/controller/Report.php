@@ -100,6 +100,7 @@ class Report extends BaseController
 
         foreach ($list as &$item) {
             $item['id']            = (int) $item['id'];
+            $item['target_uid']    = (int) ($item['target_uid'] ?? 0);
             $item['post_id']       = (int) $item['post_id'];
             $item['comment_id']    = (int) $item['comment_id'];
             $item['user_id']       = (int) $item['user_id'];
@@ -111,10 +112,17 @@ class Report extends BaseController
             $item['reason_text']   = $reasonName[(string) $item['reason']] ?? $item['reason'];
             $item['reporter_nickname'] = $item['reporter_nickname'] ?: '已注销用户';
             $item['content_preview']   = mb_substr((string) $item['content'], 0, 60);
-            $item['post_type']         = $item['comment_id'] > 0 ? 'comment' : 'post';
+            $item['post_type']         = $item['target_uid'] > 0
+                ? 'user'
+                : ($item['comment_id'] > 0 ? 'comment' : 'post');
 
-            // 被举报对象作者与内容
-            if ($item['comment_id'] > 0) {
+            // 被举报对象作者与内容（举报用户：展示用户信息；举报帖子/评论：展示作者与内容）
+            if ($item['target_uid'] > 0) {
+                $item['target_nickname']    = '用户 #' . $item['target_uid'];
+                $item['target_content']     = '';
+                $item['target_content_html'] = '';
+                $item['target_status']      = 1;
+            } elseif ($item['comment_id'] > 0) {
                 $t = $commentInfo[$item['comment_id']] ?? null;
                 $item['target_nickname']    = ($t['nickname'] ?? '') ?: '已注销用户';
                 $item['target_content']     = $t['content'] ?? '';
@@ -193,8 +201,20 @@ class Report extends BaseController
             return json(['code' => 1, 'msg' => '管理员密码错误']);
         }
 
-        // 删除：软删被举报对象
-        if ($report['comment_id'] > 0) {
+        // 删除：软删被举报对象（举报用户 → 封禁该用户）
+        if ((int) ($report['target_uid'] ?? 0) > 0) {
+            $tu = (int) $report['target_uid'];
+            Db::name('user')->where('id', $tu)->update([
+                'status'     => 2,
+                'ban_time'   => $now,
+                'ban_reason' => $remark ?: '被举报封禁',
+                'update_time' => $now,
+            ]);
+            // 级联软删该用户帖子与评论
+            Db::name('post')->where('user_id', $tu)->update(['status' => 0, 'update_time' => $now]);
+            Db::name('post_comment')->where('user_id', $tu)->update(['status' => 0]);
+            $logRemark = '举报 #' . $reportId . ' 封禁用户 #' . $tu . ($remark ? '：' . $remark : '');
+        } elseif ($report['comment_id'] > 0) {
             Db::name('post_comment')->where('id', (int) $report['comment_id'])->update(['status' => 0]);
             // 若删的是顶层评论，级联删楼中楼
             $c = Db::name('post_comment')->where('id', (int) $report['comment_id'])->find();

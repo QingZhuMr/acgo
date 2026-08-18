@@ -61,6 +61,7 @@ CREATE TABLE `post_comment` (
 DROP TABLE IF EXISTS `post_report`;
 CREATE TABLE `post_report` (
   `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '举报ID',
+  `target_uid`      INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '被举报用户ID，0表示举报内容（帖子/评论）',
   `post_id`         INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '被举报帖子ID',
   `comment_id`      INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '被举报评论ID，0表示举报帖子本身',
   `user_id`         INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '举报人ID',

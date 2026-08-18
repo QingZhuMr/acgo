@@ -489,7 +489,8 @@ class Post extends BaseController
 
     /**
      * 举报（业务接口：签名 + 设备密钥）
-     * POST：post_id、comment_id（可选，0=举报帖子）、reason、content（可选）
+     * POST：target_uid（举报用户，可选）/ post_id、comment_id（可选，0=举报帖子）、reason、content（可选）
+     * 三种对象：用户（target_uid>0）、评论（comment_id>0）、帖子（仅 post_id）
      */
     public function report()
     {
@@ -499,36 +500,49 @@ class Post extends BaseController
         }
         $uid = (int) $device['user_id'];
 
+        $targetUid = (int) $this->request->post('target_uid', 0);
         $postId    = (int) $this->request->post('post_id', 0);
         $commentId = (int) $this->request->post('comment_id', 0);
         $reason    = trim((string) $this->request->post('reason', ''));
         $content   = trim((string) $this->request->post('content', ''));
 
-        if ($postId <= 0) {
-            return json(['code' => 1, 'msg' => '举报对象不存在']);
-        }
         if (!in_array($reason, self::REPORT_REASON, true)) {
             return json(['code' => 1, 'msg' => '请选择举报原因']);
         }
         if (mb_strlen($content) > 500) {
             return json(['code' => 1, 'msg' => '举报说明最长500字']);
         }
-
-        $post = Db::name('post')->where('id', $postId)->find();
-        if (!$post) {
-            return json(['code' => 1, 'msg' => '帖子不存在']);
+        if ($targetUid <= 0 && $postId <= 0) {
+            return json(['code' => 1, 'msg' => '举报对象不存在']);
         }
 
-        // 举报评论时，评论必须属于该帖子
-        if ($commentId > 0) {
-            $comment = Db::name('post_comment')->where('id', $commentId)->where('post_id', $postId)->find();
-            if (!$comment) {
-                return json(['code' => 1, 'msg' => '被举报的评论不存在']);
+        // 举报用户：目标必须存在且不能举报自己
+        if ($targetUid > 0) {
+            if ($targetUid === $uid) {
+                return json(['code' => 1, 'msg' => '不能举报自己']);
+            }
+            $targetUser = Db::name('user')->where('id', $targetUid)->find();
+            if (!$targetUser) {
+                return json(['code' => 1, 'msg' => '被举报的用户不存在']);
+            }
+        } else {
+            $post = Db::name('post')->where('id', $postId)->find();
+            if (!$post) {
+                return json(['code' => 1, 'msg' => '帖子不存在']);
+            }
+
+            // 举报评论时，评论必须属于该帖子
+            if ($commentId > 0) {
+                $comment = Db::name('post_comment')->where('id', $commentId)->where('post_id', $postId)->find();
+                if (!$comment) {
+                    return json(['code' => 1, 'msg' => '被举报的评论不存在']);
+                }
             }
         }
 
         // 防重复举报（同一人、同一对象、待处理中）
         $exists = Db::name('post_report')
+            ->where('target_uid', $targetUid)
             ->where('post_id', $postId)
             ->where('comment_id', $commentId)
             ->where('user_id', $uid)
@@ -540,6 +554,7 @@ class Post extends BaseController
 
         $now = time();
         Db::name('post_report')->insert([
+            'target_uid'  => $targetUid,
             'post_id'     => $postId,
             'comment_id'  => $commentId,
             'user_id'     => $uid,
@@ -549,10 +564,10 @@ class Post extends BaseController
             'create_time' => $now,
         ]);
 
-        // 被举报对象举报计数 +1
-        if ($commentId > 0) {
+        // 被举报对象举报计数 +1（举报用户暂不累加计数，仅记录到 post_report）
+        if ($targetUid <= 0 && $commentId > 0) {
             Db::name('post_comment')->where('id', $commentId)->inc('report_count')->update();
-        } else {
+        } elseif ($targetUid <= 0) {
             Db::name('post')->where('id', $postId)->inc('report_count')->update();
         }
 
