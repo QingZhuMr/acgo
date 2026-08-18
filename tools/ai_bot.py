@@ -377,15 +377,7 @@ def cmd_comment(args):
         print(f'[*] 用 {n} 个账号评论帖子 {args.post_id}（delay {args.delay}）')
     else:
         print(f'[*] 用 {n} 个账号随机选帖评论（delay {args.delay}）...')
-        for page in range(1, 4):  # 最多拉 3 页作为随机池
-            try:
-                j = api.post_list(page=page, page_size=50)
-                rows = (j.get('data') or {}).get('list') or []
-                if not rows:
-                    break
-                post_pool.extend([r['id'] for r in rows if r.get('id')])
-            except Exception:
-                break
+        post_pool = _fetch_post_pool(api)
         if not post_pool:
             print('[!] 未获取到帖子，请先发帖或用 --post-id 指定')
             return
@@ -414,23 +406,56 @@ def cmd_comment(args):
     print(f'\n[+] 评论完成：成功 {ok}，失败 {fail}')
 
 
+def _fetch_post_pool(api, pages=3, page_size=50):
+    """拉取帖子 id 池（供点赞/收藏/评论随机选帖）"""
+    pool = []
+    for page in range(1, pages + 1):
+        try:
+            j = api.post_list(page=page, page_size=page_size)
+            rows = (j.get('data') or {}).get('list') or []
+            if not rows:
+                break
+            pool.extend([r['id'] for r in rows if r.get('id')])
+        except Exception:
+            break
+    return pool
+
+
 def cmd_interact(args):
-    """批量点赞/收藏/关注"""
+    """批量点赞/收藏/关注
+
+    不指定 --post-id 且启用了 like/favorite 时，自动读取数据库已有帖子随机挑选
+    （每个账号点赞/收藏时随机挑一个帖子，不同账号可能不同，更接近真人）。
+    """
     api = AiApi(args.api, args.token)
     accounts = load_accounts(args.accounts)
     selected = pick_accounts(accounts, args.max)
+
+    # 需要随机选帖时（启用了 like/favorite 且未指定 post-id），预拉帖子池
+    need_random = (args.like or args.favorite) and not args.post_id
+    post_pool = []
+    if need_random:
+        print('[*] 未指定 --post-id，拉取帖子池用于随机点赞/收藏...')
+        post_pool = _fetch_post_pool(api)
+        if not post_pool:
+            print('[!] 未获取到帖子，请先发帖或用 --post-id 指定')
+            return
+        print(f'[i] 帖子池 {len(post_pool)} 条')
+
     print(f'[*] 互动：{len(selected)} 个账号，like={args.like} favorite={args.favorite} follow={args.follow}')
 
     ok = fail = 0
     for a in selected:
         try:
-            if args.like and args.post_id:
-                j = api.like(a['id'], args.post_id)
-                print(f'  [ok] {a["nickname"]} 点赞 post={args.post_id} -> {j.get("msg")}')
+            if args.like:
+                post_id = args.post_id or random.choice(post_pool)
+                j = api.like(a['id'], post_id)
+                print(f'  [ok] {a["nickname"]} 点赞 post={post_id} -> {j.get("msg")}')
                 ok += 1
-            if args.favorite and args.post_id:
-                j = api.favorite(a['id'], args.post_id)
-                print(f'  [ok] {a["nickname"]} 收藏 post={args.post_id} -> {j.get("msg")}')
+            if args.favorite:
+                post_id = args.post_id or random.choice(post_pool)
+                j = api.favorite(a['id'], post_id)
+                print(f'  [ok] {a["nickname"]} 收藏 post={post_id} -> {j.get("msg")}')
                 ok += 1
             if args.follow:
                 for t in str(args.follow).split(','):
@@ -518,7 +543,7 @@ def main():
     # interact
     p = sub.add_parser('interact', help='批量点赞/收藏/关注')
     p.add_argument('--accounts', required=True, help='账号信息文件')
-    p.add_argument('--post-id', type=int, default=0, help='目标帖子 id（点赞/收藏用）')
+    p.add_argument('--post-id', type=int, default=0, help='目标帖子 id（点赞/收藏用；不传则自动读取数据库已有帖子随机选一个）')
     p.add_argument('--like', action='store_true', help='点赞帖子')
     p.add_argument('--favorite', action='store_true', help='收藏帖子')
     p.add_argument('--follow', default='', help='关注的目标 uid（逗号分隔，可多个）')
