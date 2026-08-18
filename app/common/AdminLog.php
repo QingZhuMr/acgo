@@ -46,6 +46,9 @@ class AdminLog
         'post_heat'        => '帖子加热',
         'report_handle'    => '处理举报',
 
+        // 版本管理
+        'upload'           => '上传安装包',
+
         // 系统
         'system_setting'   => '系统设置',
 

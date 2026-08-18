@@ -60,10 +60,11 @@
 
 {block name="script"}
 <script>
-layui.use(['table', 'form', 'layer'], function () {
+layui.use(['table', 'form', 'layer', 'upload'], function () {
     var table  = layui.table;
     var form   = layui.form;
     var layer  = layui.layer;
+    var upload = layui.upload;
     var $      = layui.$;
 
     // 初始化渲染表单组件
@@ -195,6 +196,41 @@ layui.use(['table', 'form', 'layer'], function () {
                         status: data.status == 1 ? 'on' : undefined
                     });
                     form.render();
+                } else {
+                    // 新增表单：绑定"上传安装包"按钮（按平台+版本号生成文件名，上传后自动填入 URL）
+                    upload.render({
+                        elem: '#btnUploadPkg',
+                        url: '/update/upload',
+                        auto: true,
+                        accept: 'file',
+                        choose: function (obj) {
+                            obj.preview(function (index, file, result) {
+                                // 上传前校验平台/版本已填写
+                                var platform = $('select[name="platform"]').val();
+                                var version = $.trim($('input[name="version"]').val());
+                                if (!platform) { layer.msg('请先选择平台', { icon: 2 }); return; }
+                                if (!/^\d+(\.\d+){1,3}$/.test(version)) { layer.msg('请先填写版本号（如 0.1.1）', { icon: 2 }); return; }
+                                obj.upload(index, file);
+                            });
+                        },
+                        data: function () {
+                            return {
+                                platform: $('select[name="platform"]').val(),
+                                version: $.trim($('input[name="version"]').val())
+                            };
+                        },
+                        done: function (res) {
+                            if (res.code === 0) {
+                                $('input[name="download_url"]').val(res.data.url);
+                                layer.msg('上传成功，地址已自动填入', { icon: 1 });
+                            } else {
+                                layer.msg(res.msg || '上传失败', { icon: 2 });
+                            }
+                        },
+                        error: function () {
+                            layer.msg('上传失败，请重试', { icon: 2 });
+                        }
+                    });
                 }
             }
         });
@@ -234,7 +270,10 @@ layui.use(['table', 'form', 'layer'], function () {
             '<div class="layui-form-item">' +
                 '<label class="layui-form-label">下载地址</label>' +
                 '<div class="layui-input-block">' +
-                    '<input type="text" name="download_url" placeholder="https://..." lay-verify="required" autocomplete="off" class="layui-input">' +
+                    '<div style="display:flex;gap:8px;">' +
+                        '<input type="text" name="download_url" placeholder="https://..." lay-verify="required" autocomplete="off" class="layui-input">' +
+                        (isEdit ? '' : '<button type="button" class="layui-btn layui-btn-sm" id="btnUploadPkg"><i class="layui-icon layui-icon-upload"></i> 上传安装包</button>') +
+                    '</div>' +
                     '<div class="form-tip">Windows：exe / zip；macOS：dmg / pkg；Linux：tar.gz / AppImage；Android：apk；iPadOS：App Store；鸿蒙OS：hsp / apk；iOS：App Store</div>' +
                 '</div>' +
             '</div>' +

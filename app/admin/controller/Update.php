@@ -109,6 +109,80 @@ class Update extends BaseController
     }
 
     /**
+     * 上传安装包（管理页）
+     * POST：file（multipart）、platform、version
+     *
+     * 按平台存到 public/app/{platform}/，文件名规则：
+     *   {appEn}-{platform}-{version}{ext}，如 yeahbear-win-0.1.1.zip
+     * 返回完整下载 URL（index 域名，即客户端实际访问域名）。
+     */
+    public function upload()
+    {
+        $platform = strtolower((string) $this->request->post('platform', ''));
+        $version  = trim((string) $this->request->post('version', ''));
+        if (!in_array($platform, self::PLATFORMS, true)) {
+            return $this->jsonOut(1, '请选择有效的平台');
+        }
+        if ($version === '' || !preg_match('/^\d+(\.\d+){1,3}$/', $version)) {
+            return $this->jsonOut(1, '请填写有效版本号（如 0.1.1）');
+        }
+
+        $file = $this->request->file('file');
+        if (!$file) {
+            return $this->jsonOut(1, '请选择要上传的安装包');
+        }
+
+        // 校验大小：安装包最大 200MB
+        $size = $file->getSize();
+        if ($size <= 0 || $size > 200 * 1024 * 1024) {
+            return $this->jsonOut(1, '安装包不能超过 200MB');
+        }
+
+        // 校验扩展名
+        $origName = (string) $file->getOriginalName();
+        $ext = strtolower((string) pathinfo($origName, PATHINFO_EXTENSION));
+        $allowedExts = ['exe', 'zip', 'dmg', 'pkg', 'apk', 'hsp', 'tar', 'gz', 'appimage', 'aab', '7z'];
+        if ($ext === '' || !in_array($ext, $allowedExts, true)) {
+            return $this->jsonOut(1, '不支持的安装包格式：.' . $ext);
+        }
+
+        // 文件名：yeahbear-{platform}-{version}.{ext}
+        $appEn = 'yeahbear';
+        $fileName = sprintf('%s-%s-%s.%s', $appEn, $platform, $version, $ext);
+
+        // 目标目录 public/app/{platform}/
+        $relDir = 'app' . DIRECTORY_SEPARATOR . $platform;
+        $dir = public_path() . $relDir;
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+
+        // 覆盖写入（同名版本重新上传即覆盖）
+        try {
+            $file->move($dir, $fileName);
+        } catch (\Throwable $e) {
+            return $this->jsonOut(1, '保存失败：' . $e->getMessage());
+        }
+
+        // index 域名（客户端实际访问域名，.env DOMAIN_INDEX；失败回退当前请求域名）
+        $indexDomain = trim((string) env('DOMAIN_INDEX', ''));
+        if ($indexDomain === '') {
+            $indexDomain = (string) $this->request->host(true);
+        }
+        if (strpos($indexDomain, 'http') !== 0) {
+            $indexDomain = 'https://' . $indexDomain;
+        }
+        $url = rtrim($indexDomain, '/') . '/app/' . $platform . '/' . $fileName;
+
+        $this->log('upload', '上传安装包 platform=' . $platform . ' version=' . $version . ' => ' . $fileName);
+
+        return $this->jsonOut(0, '上传成功', [
+            'url'      => $url,
+            'filename' => $fileName,
+        ]);
+    }
+
+    /**
      * 新增版本
      */
     public function add()
