@@ -366,7 +366,7 @@ class Chat extends BaseController
      * 撤回消息（业务接口）
      * POST：msg_id、peer_id（接收者）
      *
-     * 仅发送者本人 5 分钟内可撤回；撤回后 status=2，
+     * 仅发送者本人 2 分钟内可撤回；撤回后 status=2，
      * 接收方与发送方其他设备收到 chat_recall 推送，客户端展示"撤回了一条消息"。
      */
     public function recall()
@@ -390,8 +390,8 @@ class Chat extends BaseController
         if (!$msg || (int) $msg['status'] !== 1) {
             return json(['code' => 1, 'msg' => '消息不存在或已被撤回']);
         }
-        if ((int) $msg['create_time'] < time() - 300) {
-            return json(['code' => 1, 'msg' => '超过 5 分钟，无法撤回']);
+        if ((int) $msg['create_time'] < time() - 120) {
+            return json(['code' => 1, 'msg' => '超过 2 分钟，无法撤回']);
         }
 
         Db::name('chat_message')->where('id', $msgId)->update(['status' => 2]);
