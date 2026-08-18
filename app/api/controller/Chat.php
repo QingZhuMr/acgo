@@ -599,7 +599,7 @@ class Chat extends BaseController
             if ((int) $cr['user_id'] !== $peers[$chatId]) {
                 continue;
             }
-            $cur = (int) $map[$chatId] ?? 0;
+            $cur = (int) ($map[$chatId] ?? 0);
             $last = (int) $cr['last_read_msg_id'];
             if ($last > $cur) {
                 $map[$chatId] = $last;
