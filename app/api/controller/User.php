@@ -764,7 +764,7 @@ class User extends BaseController
         $mutualIds = [];
         if ('following_id' === $idField) {
             $back = Db::name('user_follow')
-                ->where('follower_id', $ids)
+                ->whereIn('follower_id', $ids)
                 ->where('following_id', $uid)
                 ->field('follower_id')
                 ->select()
