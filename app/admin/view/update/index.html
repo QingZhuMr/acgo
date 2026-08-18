@@ -206,10 +206,10 @@ layui.use(['table', 'form', 'layer'], function () {
                 '<div class="layui-input-block">' +
                     '<select name="platform" lay-verify="required">' +
                         '<option value="">请选择平台</option>' +
-                        '<option value="win">Windows（上传安装包）</option>' +
-                        '<option value="mac">macOS（推送 App Store 地址）</option>' +
+                        '<option value="win">Windows（上传 exe / zip 安装包）</option>' +
+                        '<option value="mac">macOS（上传 dmg / pkg 安装包）</option>' +
                         '<option value="ios">iOS（推送 App Store 地址）</option>' +
-                        '<option value="android">Android（上传安装包）</option>' +
+                        '<option value="android">Android（上传 apk 安装包）</option>' +
                     '</select>' +
                 '</div>' +
             '</div>' +
@@ -229,7 +229,7 @@ layui.use(['table', 'form', 'layer'], function () {
                 '<label class="layui-form-label">下载地址</label>' +
                 '<div class="layui-input-block">' +
                     '<input type="text" name="download_url" placeholder="https://..." lay-verify="required" autocomplete="off" class="layui-input">' +
-                    '<div class="form-tip">Windows/Android：安装包下载链接；iOS/macOS：App Store 链接</div>' +
+                    '<div class="form-tip">Windows：exe 或 zip 下载链接；macOS：dmg 或 pkg 下载链接；Android：apk；iOS：App Store 链接</div>' +
                 '</div>' +
             '</div>' +
             '<div class="layui-form-item">' +
