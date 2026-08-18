@@ -419,6 +419,10 @@
 - 功能：图片压缩保存到 `public/static/chat/`（最大边 1080px、≤512KB），返回相对 URL；客户端将 URL 作为 JSON（`{"url":"..."}`）**加密为消息 body** 发送（`msg_type=2`），接收方解密后渲染图片
 - 返回 data：`{ url }`
 
+**清空会话**：`POST /api/chat/clear`
+- 参数：`peer_id`
+- 功能：删除当前用户与该 peer 之间的**服务器密文记录**（双方各自本地记录由客户端处理），并 WS 推送 `chat_clear` 给双方所有在线设备（多端同步清空本地聊天记录）
+
 ### 3.10 评论点赞 / 取消（切换，业务）
 
 - **路径**：`POST /api/post/commentLike`

@@ -470,6 +470,48 @@ class Chat extends BaseController
     }
 
     /**
+     * 清空会话（业务接口）
+     * POST：peer_id
+     *
+     * 删除当前用户与该 peer 之间的所有服务器密文记录（双方各自本地
+     * 记录由客户端处理，本接口只清服务器缓存），并 WS 推送 chat_clear
+     * 给双方所有在线设备（多端同步清除本地记录）。
+     */
+    public function clear()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid    = (int) $device['user_id'];
+        $peerId = (int) $this->request->post('peer_id', 0);
+        if ($peerId <= 0 || $peerId === $uid) {
+            return json(['code' => 1, 'msg' => '参数无效']);
+        }
+        $chatId = $this->chatId($uid, $peerId);
+
+        Db::name('chat_message')
+            ->where('chat_id', $chatId)
+            ->where(function ($q) use ($uid) {
+                $q->where('sender_id', $uid)->whereOr('receiver_id', $uid);
+            })
+            ->delete();
+
+        $payload = [
+            'type'  => 'chat_clear',
+            'clear' => [
+                'chat_id' => $chatId,
+                'peer_id' => $peerId,
+                'time'    => time(),
+            ],
+        ];
+        Pusher::send(['user_id' => $peerId], $payload);
+        Pusher::send(['user_id' => $uid], $payload);
+
+        return json(['code' => 0, 'msg' => 'ok']);
+    }
+
+    /**
      * 会话 ID：min(uid, peer)_max(uid, peer)
      */
     protected function chatId(int $a, int $b): string
