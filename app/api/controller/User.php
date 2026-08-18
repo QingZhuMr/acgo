@@ -686,6 +686,17 @@ class User extends BaseController
         $list = [];
         if ($ids) {
             $userMap = UserInfoCache::batch($ids);
+            // 在线用户集合（任一设备长连接在线即在线）
+            $onlineUserIds = [];
+            try {
+                $onlineUserIds = Db::name('user_device')
+                    ->where('online_status', 1)
+                    ->whereIn('user_id', $ids)
+                    ->column('user_id');
+            } catch (\Throwable $e) {
+                $onlineUserIds = [];
+            }
+            $onlineMap = array_flip(array_map('intval', $onlineUserIds));
             foreach ($mutualRows as $r) {
                 $fid = (int) $r['follower_id'];
                 $u   = $userMap[$fid] ?? ['nickname' => '', 'avatar' => ''];
@@ -694,6 +705,7 @@ class User extends BaseController
                     'nickname'    => (string) ($u['nickname'] ?? ''),
                     'avatar'      => (string) ($u['avatar'] ?? ''),
                     'follow_time' => (int) $r['create_time'],
+                    'online'      => isset($onlineMap[$fid]),
                 ];
             }
         }
@@ -794,6 +806,18 @@ class User extends BaseController
         }
         $userMap = UserInfoCache::batch($ids);
 
+        // 在线用户集合（任一设备长连接在线即在线）
+        $onlineUserIds = [];
+        try {
+            $onlineUserIds = Db::name('user_device')
+                ->where('online_status', 1)
+                ->whereIn('user_id', $ids)
+                ->column('user_id');
+        } catch (\Throwable $e) {
+            $onlineUserIds = [];
+        }
+        $onlineMap = array_flip(array_map('intval', $onlineUserIds));
+
         // 判断我关注的人里哪些是互相关注（他关注了我）
         $mutualIds = [];
         if ('following_id' === $idField) {
@@ -825,6 +849,7 @@ class User extends BaseController
                 'avatar'      => (string) ($u['avatar'] ?? ''),
                 'follow_time' => (int) $r['create_time'],
                 'is_mutual'   => isset($mutualMap[$fid]),
+                'online'      => isset($onlineMap[$fid]),
             ];
         }
         return $list;
