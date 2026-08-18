@@ -420,6 +420,16 @@ class User extends BaseController
             return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $this->browseHistoryList($uid)]]);
         }
 
+        // POST：清空浏览历史（clear=1）
+        $clear = (int) $this->request->post('clear', 0);
+        if ($clear === 1) {
+            Db::name('user')->where('id', $uid)->update([
+                'browse_history' => null,
+                'update_time'    => time(),
+            ]);
+            return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => []]]);
+        }
+
         // POST：记录浏览
         $postId = (int) $this->request->post('post_id', 0);
         if ($postId <= 0) {
