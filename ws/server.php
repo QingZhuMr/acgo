@@ -186,6 +186,63 @@ function sendJson(Swoole\WebSocket\Server $server, int $fd, array $payload): voi
 }
 
 /**
+ * 推送在线状态变化给 uid 的互相关注好友（presence 事件）。
+ *
+ * - online=1：认证成功时调用（有任一设备上线）
+ * - online=0：最后一个设备离线时调用
+ * 好友 = 互相关注（user_follow 双向存在）。
+ */
+function notifyFriendsPresence(Swoole\WebSocket\Server $server, Swoole\Table $table, int $uid, int $online): void
+{
+    if ($uid <= 0) {
+        return;
+    }
+    try {
+        $pdo = db();
+        // 查 uid 互相关注的好友：我关注了他 且 他关注了我
+        $myFollows = $pdo->prepare('SELECT following_id FROM user_follow WHERE follower_id = :uid');
+        $myFollows->execute([':uid' => $uid]);
+        $following = array_column($myFollows->fetchAll(), 'following_id');
+        if (empty($following)) {
+            return;
+        }
+        $in = implode(',', array_map('intval', $following));
+        $st = $pdo->query("SELECT follower_id FROM user_follow WHERE following_id = {$uid} AND follower_id IN ({$in})");
+        $friends = array_column($st->fetchAll(), 'follower_id');
+        if (empty($friends)) {
+            return;
+        }
+        $payload = ['type' => 'presence', 'user_id' => $uid, 'online' => $online];
+        foreach ($table as $key => $row) {
+            if ((int) ($row['authenticated'] ?? 0) !== 1) {
+                continue;
+            }
+            if (in_array((int) $row['user_id'], $friends, true)) {
+                $tFd = (int) $key;
+                if ($server->isEstablished($tFd)) {
+                    sendJson($server, $tFd, $payload);
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        // presence 推送失败不影响主流程
+    }
+}
+
+/**
+ * 判断 uid 是否仍有在线连接（任一设备在线）
+ */
+function hasOnlineConnections(Swoole\Table $table, int $uid): bool
+{
+    foreach ($table as $row) {
+        if ((int) ($row['authenticated'] ?? 0) === 1 && (int) $row['user_id'] === $uid) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * 连接认证（在 fd 对应的 worker 中执行）
  */
 function doAuth(Swoole\WebSocket\Server $server, Swoole\Table $table, int $fd, string $deviceKey): void
@@ -232,6 +289,9 @@ function doAuth(Swoole\WebSocket\Server $server, Swoole\Table $table, int $fd, s
     }
 
     sendJson($server, $fd, ['type' => 'auth_result', 'ok' => true, 'msg' => 'ok']);
+
+    // 在线状态推送：该用户有任一设备上线 → 通知互相关注好友
+    notifyFriendsPresence($server, $table, (int) $dev['user_id'], 1);
 }
 
 /**
@@ -465,6 +525,7 @@ $server->on('close', function (Swoole\WebSocket\Server $server, int $fd) use ($t
     $row = $table->get((string) $fd);
     if ($row) {
         $deviceDbId = (int) ($row['device_db_id'] ?? 0);
+        $uid = (int) ($row['user_id'] ?? 0);
         // 连接关闭：标记该设备离线
         if ($deviceDbId > 0) {
             try {
@@ -475,6 +536,10 @@ $server->on('close', function (Swoole\WebSocket\Server $server, int $fd) use ($t
             }
         }
         $table->del((string) $fd);
+        // 该用户所有设备都已离线 → 通知互相关注好友 online=0
+        if ($uid > 0 && !hasOnlineConnections($table, $uid)) {
+            notifyFriendsPresence($server, $table, $uid, 0);
+        }
     }
 });
 
@@ -495,6 +560,7 @@ $server->on('workerStart', function (Swoole\WebSocket\Server $server, int $worke
     // 只能操作本 worker 的连接，多 worker 下跨 worker 连接会被误判失效，切勿调大 worker_num。
     Swoole\Timer::tick($config['heartbeat_interval'] * 1000, function () use ($server, $table) {
         $aliveIds = []; // 当前存活连接的 device_db_id 集合
+        $deadUsers = []; // 连接失效被删除的用户（用于 presence 推送）
         foreach ($table as $key => $row) {
             $fd = (int) $key; // Table key 为 string
             $did = (int) ($row['device_db_id'] ?? 0);
@@ -503,6 +569,7 @@ $server->on('workerStart', function (Swoole\WebSocket\Server $server, int $worke
             }
             if (!$server->isEstablished($fd)) {
                 // 连接失效：标记离线
+                $deadUsers[(int) ($row['user_id'] ?? 0)] = true;
                 try {
                     db()->prepare('UPDATE user_device SET online_status = 0, update_time = :t WHERE id = :id')
                         ->execute([':t' => time(), ':id' => $did]);
@@ -534,6 +601,12 @@ $server->on('workerStart', function (Swoole\WebSocket\Server $server, int $worke
             }
         } catch (Throwable $e) {
             // 忽略
+        }
+        // 连接失效的用户若已无任何在线连接 → 通知好友 offline
+        foreach (array_keys($deadUsers) as $deadUid) {
+            if ($deadUid > 0 && !hasOnlineConnections($table, $deadUid)) {
+                notifyFriendsPresence($server, $table, $deadUid, 0);
+            }
         }
     });
 });
