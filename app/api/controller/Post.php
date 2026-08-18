@@ -975,6 +975,8 @@ class Post extends BaseController
         }
         $uid = (int) $device['user_id'];
         $targetUid = (int) $this->request->param('target_uid', 0);
+        // 查看对象：看自己=uid，看他人=target_uid
+        $viewUid = $targetUid > 0 ? $targetUid : $uid;
 
         $page     = max(1, (int) $this->request->param('page', 1));
         $pageSize = min(50, max(1, (int) $this->request->param('page_size', 10)));
@@ -1062,6 +1064,8 @@ class Post extends BaseController
         }
         $uid = (int) $device['user_id'];
         $targetUid = (int) $this->request->param('target_uid', 0);
+        // 查看对象：看自己=uid，看他人=target_uid
+        $viewUid = $targetUid > 0 ? $targetUid : $uid;
 
         $page     = max(1, (int) $this->request->param('page', 1));
         $pageSize = min(50, max(1, (int) $this->request->param('page_size', 10)));
