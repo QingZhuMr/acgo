@@ -406,6 +406,36 @@ $server->on('message', function (Swoole\WebSocket\Server $server, Swoole\WebSock
             $server->close($fd);
             break;
 
+        // typing 输入状态：A 输入时转发给 B 的所有在线连接（不落库）
+        case 'typing':
+            $info = $table->get((string) $fd);
+            $senderId = (int) ($info['user_id'] ?? 0);
+            $receiverId = (int) ($data['receiver_id'] ?? 0);
+            $chatId = (string) ($data['chat_id'] ?? '');
+            if ($senderId > 0 && $receiverId > 0 && $chatId !== '') {
+                $toFds = [];
+                foreach ($table as $tFd => $tInfo) {
+                    if ((int) $tInfo['user_id'] === $receiverId) {
+                        $toFds[] = (string) $tFd;
+                    }
+                }
+                $payload = [
+                    'type'     => 'typing',
+                    'typing'   => [
+                        'chat_id'   => $chatId,
+                        'sender_id' => $senderId,
+                        'receiver_id' => $receiverId,
+                    ],
+                ];
+                foreach ($toFds as $toFd) {
+                    if ((string) $toFd === (string) $fd) {
+                        continue; // 不回给发送者
+                    }
+                    sendJson($server, (int) $toFd, $payload);
+                }
+            }
+            break;
+
         default:
             sendJson($server, $fd, ['type' => 'error', 'msg' => '未知消息类型']);
     }
