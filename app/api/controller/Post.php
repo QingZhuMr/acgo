@@ -958,10 +958,6 @@ class Post extends BaseController
         if (!$post) {
             return json(['code' => 1, 'msg' => '帖子不存在']);
         }
-        // 不允许给自己的帖子点赞
-        if ((int) $post['user_id'] === $uid) {
-            return json(['code' => 1, 'msg' => '不能给自己的帖子点赞']);
-        }
 
         $exists = Db::name('post_like')
             ->where('post_id', $postId)
@@ -1013,11 +1009,6 @@ class Post extends BaseController
         if (!$post) {
             return json(['code' => 1, 'msg' => '帖子不存在']);
         }
-        // 不允许收藏自己的帖子
-        if ((int) $post['user_id'] === $uid) {
-            return json(['code' => 1, 'msg' => '不能收藏自己的帖子']);
-        }
-
         $exists = Db::name('post_favorite')
             ->where('post_id', $postId)
             ->where('user_id', $uid)

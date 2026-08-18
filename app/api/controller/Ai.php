@@ -506,7 +506,7 @@ class Ai extends BaseController
      * AI 帖子点赞 / 取消点赞（切换）
      *
      * POST：uid、post_id、notify（可选 0/1，默认1，首次点赞通知作者）
-     * 返回：is_liked、like_count
+     * 支持给自己的帖子点赞（不通知自己）；返回：is_liked、like_count
      */
     public function like()
     {
@@ -523,9 +523,6 @@ class Ai extends BaseController
         $post = Db::name('post')->where('id', $postId)->where('status', 1)->find();
         if (!$post) {
             return json(['code' => 1, 'msg' => '帖子不存在']);
-        }
-        if ((int) $post['user_id'] === $uid) {
-            return json(['code' => 1, 'msg' => '不能给自己的帖子点赞']);
         }
 
         $exists = Db::name('post_like')
@@ -564,7 +561,7 @@ class Ai extends BaseController
      * AI 帖子收藏 / 取消收藏（切换）
      *
      * POST：uid、post_id、notify（可选 0/1，默认1，首次收藏通知作者）
-     * 返回：is_favorited、favorite_count
+     * 支持收藏自己的帖子（不通知自己）；返回：is_favorited、favorite_count
      */
     public function favorite()
     {
@@ -581,9 +578,6 @@ class Ai extends BaseController
         $post = Db::name('post')->where('id', $postId)->where('status', 1)->find();
         if (!$post) {
             return json(['code' => 1, 'msg' => '帖子不存在']);
-        }
-        if ((int) $post['user_id'] === $uid) {
-            return json(['code' => 1, 'msg' => '不能收藏自己的帖子']);
         }
 
         $exists = Db::name('post_favorite')
