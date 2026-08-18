@@ -200,14 +200,16 @@ layui.use(['table', 'form', 'layer', 'upload'], function () {
                     // 新增表单：绑定"上传安装包"按钮（按平台+版本号生成文件名，上传后自动填入 URL）
                     upload.render({
                         elem: '#btnUploadPkg',
-                        url: '/update/upload',
                         // auto:false —— 完全手动控制上传时机。
                         // 不能 auto:true：auto 会在 choose 校验前就自动上传（platform 还没填/取不到），
                         // choose 里的 return 拦不住自动上传 → 后端收空 platform 报"没有选择平台"。
                         auto: false,
                         accept: 'file',
                         choose: function (obj) {
-                            // 选择文件后统一走 preview 回调校验，校验通过才手动 upload
+                            // 选择文件后统一走 preview 回调校验，校验通过才上传。
+                            // 注意：此 layui 版本的 upload.data 不支持函数写法（内部 layui.each 遍历 data，
+                            // 函数对象无属性 → platform/version 不会被 append 到 FormData）→ 后端必报"请选择有效的平台"。
+                            // 因此手动构造 FormData + $.ajax 上传，彻底绕开 layui 的 data 机制。
                             obj.preview(function (index, file) {
                                 // 注意：必须限定在弹窗作用域内取值！
                                 // 页面工具栏也有 select[name=platform]（平台筛选），
@@ -217,27 +219,31 @@ layui.use(['table', 'form', 'layer', 'upload'], function () {
                                 var version = $.trim($dlg.find('input[name="version"]').val());
                                 if (!platform) { layer.msg('请先选择平台', { icon: 2 }); return; }
                                 if (!/^\d+(\.\d+){1,3}$/.test(version)) { layer.msg('请先填写版本号（如 0.1.1）', { icon: 2 }); return; }
-                                obj.upload(index, file);
+
+                                var fd = new FormData();
+                                fd.append('file', file);
+                                fd.append('platform', platform);
+                                fd.append('version', version);
+                                $.ajax({
+                                    url: '/update/upload',
+                                    type: 'POST',
+                                    data: fd,
+                                    processData: false,
+                                    contentType: false,
+                                    dataType: 'json',
+                                    success: function (res) {
+                                        if (res.code === 0) {
+                                            $('input[name="download_url"]').val(res.data.url);
+                                            layer.msg('上传成功，地址已自动填入', { icon: 1 });
+                                        } else {
+                                            layer.msg(res.msg || '上传失败', { icon: 2 });
+                                        }
+                                    },
+                                    error: function () {
+                                        layer.msg('上传失败，请重试', { icon: 2 });
+                                    }
+                                });
                             });
-                        },
-                        data: function () {
-                            // 同样限定弹窗作用域
-                            var $dlg = $('.layui-layer-page');
-                            return {
-                                platform: $dlg.find('select[name="platform"]').val(),
-                                version: $.trim($dlg.find('input[name="version"]').val())
-                            };
-                        },
-                        done: function (res) {
-                            if (res.code === 0) {
-                                $('input[name="download_url"]').val(res.data.url);
-                                layer.msg('上传成功，地址已自动填入', { icon: 1 });
-                            } else {
-                                layer.msg(res.msg || '上传失败', { icon: 2 });
-                            }
-                        },
-                        error: function () {
-                            layer.msg('上传失败，请重试', { icon: 2 });
                         }
                     });
                 }
