@@ -361,6 +361,25 @@ Swoole\Timer::tick(3600 * 1000, function () {
     } catch (Throwable $e) {
         // 清理失败静默，下次再试
     }
+    // 聊天图片缓存 30 天清理：客户端收到图片即本地缓存，云端图仅作中转，
+    // 与消息密文同生命周期（30 天），按文件 mtime 到期删除
+    try {
+        $chatDir = __DIR__ . '/../public/static/chat';
+        if (is_dir($chatDir)) {
+            $cutoff = time() - 30 * 86400;
+            foreach (scandir($chatDir) ?: [] as $f) {
+                if ($f === '.' || $f === '..') {
+                    continue;
+                }
+                $fp = $chatDir . '/' . $f;
+                if (is_file($fp) && filemtime($fp) < $cutoff) {
+                    @unlink($fp);
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        // 清理失败静默
+    }
 });
 
 $server->on('open', function (Swoole\WebSocket\Server $server, Swoole\Http\Request $request) use ($config, $table) {
