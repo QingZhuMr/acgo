@@ -260,7 +260,7 @@ layui.use(['table', 'form', 'layer', 'upload'], function () {
                 '<div class="layui-input-block">' +
                     '<select name="platform" lay-verify="required">' +
                         '<option value="">请选择平台</option>' +
-                        '<option value="win">Windows（上传 exe / zip 安装包）</option>' +
+                        '<option value="win">Windows（上传 exe 安装包）</option>' +
                         '<option value="mac">macOS（上传 dmg / pkg 安装包）</option>' +
                         '<option value="linux">Linux（上传 tar.gz / AppImage 安装包）</option>' +
                         '<option value="android">Android（上传 apk 安装包）</option>' +
@@ -287,9 +287,9 @@ layui.use(['table', 'form', 'layer', 'upload'], function () {
                 '<div class="layui-input-block">' +
                     '<div style="display:flex;gap:8px;">' +
                         '<input type="text" name="download_url" placeholder="https://..." lay-verify="required" autocomplete="off" class="layui-input">' +
-                        (isEdit ? '' : '<button type="button" class="layui-btn layui-btn-sm" id="btnUploadPkg"><i class="layui-icon layui-icon-upload"></i> 上传安装包</button>') +
+                        (isEdit ? '' : '<button type="button" class="layui-btn layui-btn-sm" id="btnUploadPkg"><i class="layui-icon layui-icon-upload"></i> 上传</button>') +
                     '</div>' +
-                    '<div class="form-tip">Windows：exe / zip；macOS：dmg / pkg；Linux：tar.gz / AppImage；Android：apk；iPadOS：App Store；鸿蒙OS：hsp / apk；iOS：App Store</div>' +
+                    '<div class="form-tip">Windows：exe；macOS：dmg / pkg；Linux：tar.gz / AppImage；Android：apk；iPadOS：App Store；鸿蒙OS：hsp / apk；iOS：App Store</div>' +
                 '</div>' +
             '</div>' +
             '<div class="layui-form-item">' +
