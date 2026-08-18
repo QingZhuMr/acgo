@@ -256,6 +256,9 @@ class Chat extends BaseController
             ->select()
             ->toArray();
 
+        // 已读游标（对方最后已读 msg_id），用于标记"我发出的消息对方是否已读"
+        $readMap = $this->peerReadMap($uid, $rows);
+
         $list = [];
         foreach ($rows as $r) {
             $list[] = [
@@ -270,6 +273,10 @@ class Chat extends BaseController
                 'client_msg_id' => (string) $r['client_msg_id'],
                 'status'        => (int) $r['status'],
                 'create_time'   => (int) $r['create_time'],
+                // 我发出的消息：对方最后已读位置 >= 本条 → 对方已读
+                'peer_read'     => (int) $r['sender_id'] === $uid
+                    ? (((int) ($readMap[(string) $r['chat_id']] ?? 0)) >= (int) $r['id'] ? 1 : 0)
+                    : 0,
             ];
         }
 
@@ -463,7 +470,11 @@ class Chat extends BaseController
             ->select()
             ->toArray();
 
-        $list = array_map(function ($r) {
+        // 批量加载涉及会话的已读游标（对方在每段会话的最后已读 msg_id），
+        // 用于给当前用户发出的消息标记"对方是否已读"（离线/切号拉取也能恢复已读状态）
+        $readMap = $this->peerReadMap($uid, $rows);
+
+        $list = array_map(function ($r) use ($uid, $readMap) {
             return [
                 'id'            => (int) $r['id'],
                 'chat_id'       => (string) $r['chat_id'],
@@ -476,6 +487,10 @@ class Chat extends BaseController
                 'client_msg_id' => (string) $r['client_msg_id'],
                 'status'        => (int) $r['status'],
                 'create_time'   => (int) $r['create_time'],
+                // 我发出的消息：对方最后已读位置 >= 本条 → 对方已读
+                'peer_read'     => (int) $r['sender_id'] === $uid
+                    ? (((int) ($readMap[(string) $r['chat_id']] ?? 0)) >= (int) $r['id'] ? 1 : 0)
+                    : 0,
             ];
         }, (array) $rows);
 
@@ -533,6 +548,64 @@ class Chat extends BaseController
     protected function chatId(int $a, int $b): string
     {
         return $a < $b ? "{$a}_{$b}" : "{$b}_{$a}";
+    }
+
+    /**
+     * 构建"对方已读游标"映射：chat_id => 对方在该会话最后已读的 msg_id。
+     *
+     * 对当前用户发出的每条消息，取对方在该 chat 的 last_read_msg_id，
+     * 若 >= 本条 msg_id 则对方已读（离线/切号拉取时也能恢复已读状态，
+     * 不依赖 WS chat_read 实时推送）。
+     *
+     * @param int   $uid 当前用户
+     * @param array $rows 消息行（含 chat_id/sender_id/receiver_id）
+     * @return array<string,int>
+     */
+    protected function peerReadMap(int $uid, array $rows): array
+    {
+        // 收集我参与且我发出的会话的对方 uid：chat_id => peer_id
+        $peers = [];
+        foreach ($rows as $r) {
+            if ((int) $r['sender_id'] !== $uid) {
+                continue;
+            }
+            $chatId = (string) $r['chat_id'];
+            if (isset($peers[$chatId])) {
+                continue;
+            }
+            $peer = (int) $r['receiver_id'];
+            // 会话 id 一定是我和 peer 的组合（min_max）；peer 不能是我
+            if ($peer === $uid) {
+                continue;
+            }
+            $peers[$chatId] = $peer;
+        }
+        if (!$peers) {
+            return [];
+        }
+
+        $map = [];
+        $rowsRead = Db::name('chat_read')
+            ->where('user_id', 'in', array_values($peers))
+            ->whereIn('chat_id', array_keys($peers))
+            ->select()
+            ->toArray();
+        foreach ($rowsRead as $cr) {
+            $chatId = (string) $cr['chat_id'];
+            if (!isset($peers[$chatId])) {
+                continue;
+            }
+            // 该 chat 的已读记录必须是"对方"（peer）的
+            if ((int) $cr['user_id'] !== $peers[$chatId]) {
+                continue;
+            }
+            $cur = (int) $map[$chatId] ?? 0;
+            $last = (int) $cr['last_read_msg_id'];
+            if ($last > $cur) {
+                $map[$chatId] = $last;
+            }
+        }
+        return $map;
     }
 
     /**
