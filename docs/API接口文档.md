@@ -164,7 +164,23 @@
 
 **返回 data（GET / POST）**：`list[]`（字段同广场列表 + `browse_at`、`browse_time_text` 浏览时间）、`page`（无分页）
 
-### 1.8 修改密码（业务）
+### 1.8 关注体系（业务）
+
+**关注 / 取关**：`POST /api/user/follow`
+- 参数：`target_uid`（必填，被关注用户 ID）
+- 行为：已关注则取消关注，未关注则关注（切换）；不能关注自己
+- 返回 data：`is_following`（当前是否已关注）、`is_mutual`（是否互相关注=好友）
+
+**好友列表**：`GET /api/user/friends`
+- 参数：`page`、`page_size`（默认 10，最大 50）
+- 功能：**好友 = 互相关注**（我关注了他 且 他关注了我），按成为好友时间倒序
+- 返回 data：`list[] { user_id, nickname, avatar, follow_time }`、`page`、`total`、`has_more`
+
+**关注状态**：`GET /api/user/followStatus`
+- 参数：`target_uid`
+- 返回 data：`is_following`、`is_mutual`
+
+### 1.9 修改密码（业务）
 
 - **路径**：`POST /api/user/changePassword`
 - **鉴权**：业务（签名 + 设备密钥）
@@ -175,7 +191,7 @@
 | old_password | string | 是 | 原密码 |
 | new_password | string | 是 | 新密码，≥6 位 |
 
-### 1.8 获取域名 + WebSocket 参数（公开，校时入口）
+### 1.10 获取域名 + WebSocket 参数（公开，校时入口）
 
 - **路径**：`GET /api/user/domain`
 - **鉴权**：公开（仅签名，时间戳放宽 ±600s，为校时入口）
@@ -516,6 +532,9 @@
 | 上传头像 | `/api/user/uploadAvatar` | POST | 业务 |
 | 隐私设置 | `/api/user/privacy` | GET/POST | 业务 |
 | 浏览历史 | `/api/user/browseHistory` | GET/POST | 业务 |
+| 关注/取关 | `/api/user/follow` | POST | 业务 |
+| 好友列表 | `/api/user/friends` | GET | 业务 |
+| 关注状态 | `/api/user/followStatus` | GET | 业务 |
 | 修改密码 | `/api/user/changePassword` | POST | 业务 |
 | 域名+WS | `/api/user/domain` | GET | 公开 |
 | 验证码 | `/api/captcha/image` | GET | 公开 |
