@@ -861,11 +861,12 @@ class Ai extends BaseController
     }
 
     /**
-     * 帖子列表（AI 脚本随机选帖评论用）
+     * 帖子列表（AI 脚本随机选帖评论/点赞用）
      *
-     * GET：page（页码，默认1）、page_size（每页 1-50，默认 20）
-     * 仅返回正常（status=1）帖子，按时间倒序；供 comment 脚本不指定 post_id 时随机挑选。
-     * 返回：data.list[] { id, content(截断200), comment_count, create_time }
+     * GET：page（页码，默认1）、page_size（每页 1-50，默认 20）、
+     * full（可选 0/1，默认0：仅返回 content 前200字；1=返回完整帖子内容供 AI 分析）
+     * 仅返回正常（status=1）帖子，按 id 倒序。
+     * 返回：data.list[] { id, content, comment_count, create_time }
      */
     public function postList()
     {
@@ -875,6 +876,7 @@ class Ai extends BaseController
 
         $page = max(1, (int) $this->request->get('page', 1));
         $pageSize = min(50, max(1, (int) $this->request->get('page_size', 20)));
+        $full = (int) $this->request->get('full', 0) === 1;
 
         $rows = Db::name('post')
             ->where('status', 1)
@@ -886,9 +888,10 @@ class Ai extends BaseController
 
         $list = [];
         foreach ($rows as $row) {
+            $content = (string) $row['content'];
             $list[] = [
                 'id'            => (int) $row['id'],
-                'content'       => mb_substr((string) $row['content'], 0, 200),
+                'content'       => $full ? $content : mb_substr($content, 0, 200),
                 'comment_count' => (int) $row['comment_count'],
                 'create_time'   => (int) $row['create_time'],
             ];

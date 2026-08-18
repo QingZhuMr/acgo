@@ -4,22 +4,28 @@ ACGO AI 机器人本地自动化脚本（走 AI 专用接口，免签名）
 
 功能：
   1. create      批量建号（每个账号自动绑定随机国内 IP）+ 可选上传动漫头像
-  2. publish     批量发帖（支持本地图片 + 随机延迟模拟真人）
-  3. comment     批量回帖/评论（可楼中楼）
-  4. interact    批量点赞/收藏/关注
+  2. publish     批量发帖（支持本地图片 + 随机延迟模拟真人；--ai 按动漫类型自动生成内容）
+  3. comment     批量回帖/评论（可楼中楼；--ai 读取帖子内容自动评论回复）
+  4. interact    批量点赞/收藏/关注（--ai 用 AI 判断帖子是否值得点赞收藏）
   5. accounts    查询账号信息（含绑定 IP）
   6. rebind-ip   重新绑定账号 IP（可指定省份）
 
 AI 接口鉴权：请求头 X-AI-Token（对应 .env 的 AI_TOKEN），免 HMAC 签名/设备密钥。
 接口路径不带 /api/ 前缀，如 https://api.yeahbear.cn/ai/batchCreate
 
+DeepSeek（--ai 模式）：读取 acgo/.env 的 DEEPSEEK_API_KEY=sk-xxx（也可用环境变量），
+模型默认 deepseek-chat，可用 DEEPSEEK_MODEL 覆盖。
+
 依赖：Python 3 + requests（pip install requests）
 
 用法示例（Windows）：
   python ai_bot.py create --prefix 二次元酱 --count 10 --password 123456 --save accounts.json --avatar lorelei
   python ai_bot.py publish --accounts accounts.json --content-file posts.txt --max 20 --delay 3-10
+  python ai_bot.py publish --accounts accounts.json --ai --genre 热血/恋爱番 --max 20 --delay 5-15
   python ai_bot.py comment --accounts accounts.json --post-id 3 --content-file comments.txt --max 10 --delay 3-8
+  python ai_bot.py comment --accounts accounts.json --ai --max 10 --delay 5-15
   python ai_bot.py interact --accounts accounts.json --post-id 3 --like --favorite --follow 5 --delay 3-8
+  python ai_bot.py interact --accounts accounts.json --ai --like --favorite --max 10 --delay 5-15
   python ai_bot.py accounts --uid 1,2,3
   python ai_bot.py rebind-ip --uid 1 --province 广东
 """
@@ -33,12 +39,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-# 默认从环境变量取；未设置则尝试读取 ../.env 的 AI_TOKEN（脚本位于 tools/ 下）
+# 默认从环境变量取；未设置则尝试读取 ../.env（脚本位于 tools/ 下）
 _API_TOKEN_DEFAULT = 'acgo_ai_2026_x9Kq'
 
 
-def _env_token():
-    v = os.environ.get('AI_TOKEN')
+def _env_value(key, default=''):
+    v = os.environ.get(key)
     if v:
         return v
     env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env')
@@ -46,13 +52,22 @@ def _env_token():
         with open(env_file, encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
-                if line.startswith('AI_TOKEN'):
+                if line.startswith(key):
                     return line.split('=', 1)[1].strip().strip('"').strip("'")
-    return _API_TOKEN_DEFAULT
+    return default
+
+
+def _env_token():
+    return _env_value('AI_TOKEN', _API_TOKEN_DEFAULT)
 
 
 API_BASE = os.environ.get('ACGO_API_BASE', 'https://api.yeahbear.cn')
 AI_TOKEN = _env_token()
+DEEPSEEK_API_KEY = _env_value('DEEPSEEK_API_KEY', '')
+# 过滤占位值（.env 里未填 key 时视为未配置）
+if DEEPSEEK_API_KEY and ('你的key' in DEEPSEEK_API_KEY or DEEPSEEK_API_KEY == 'sk-' or DEEPSEEK_API_KEY.startswith('sk-your')):
+    DEEPSEEK_API_KEY = ''
+DEEPSEEK_BASE = os.environ.get('DEEPSEEK_BASE', 'https://api.deepseek.com')
 
 # 头像来源：
 #   - photo   真人照片（randomuser.me 官方头像库，随机男女，风格最自然多样）
@@ -155,8 +170,11 @@ class AiApi:
             'parent_id': parent_id, 'reply_to_uid': reply_to_uid, 'notify': notify,
         })
 
-    def post_list(self, page=1, page_size=20):
-        return self.get('postList', params={'page': page, 'page_size': page_size})
+    def post_list(self, page=1, page_size=20, full=False):
+        params = {'page': page, 'page_size': page_size}
+        if full:
+            params['full'] = 1
+        return self.get('postList', params=params)
 
     def like(self, uid, post_id, notify=0):
         return self.post('like', data={'uid': uid, 'post_id': post_id, 'notify': notify})
@@ -183,6 +201,58 @@ class AiApi:
         if province:
             data['province'] = province
         return self.post('rebindIp', data=data)
+
+
+class DeepSeek:
+    """DeepSeek 大模型客户端（用于 AI 生成帖子内容 / 评论 / 点赞判断）
+
+    依赖 .env 的 DEEPSEEK_API_KEY（或环境变量），未配置时仅提示不自动退出。
+    模型默认 deepseek-chat（V3）；可用 DEEPSEEK_MODEL 环境变量覆盖。
+    """
+
+    MODEL = os.environ.get('DEEPSEEK_MODEL', 'deepseek-chat')
+    MAX_TOKENS = 512
+    TIMEOUT = 60
+
+    def __init__(self, api_key=None, base=None):
+        self.api_key = api_key or DEEPSEEK_API_KEY
+        self.base = (base or DEEPSEEK_BASE).rstrip('/')
+
+    @property
+    def available(self):
+        return bool(self.api_key)
+
+    def chat(self, system, user, temperature=0.9, max_tokens=None):
+        """调用 chat/completions，返回生成的文本（strip 后）。失败抛 RuntimeError。"""
+        if not self.available:
+            raise RuntimeError('未配置 DEEPSEEK_API_KEY（请写入 acgo/.env 或设置环境变量）')
+        url = f'{self.base}/chat/completions'
+        payload = {
+            'model': self.MODEL,
+            'messages': [
+                {'role': 'system', 'content': system},
+                {'role': 'user', 'content': user},
+            ],
+            'temperature': temperature,
+            'max_tokens': max_tokens or self.MAX_TOKENS,
+            'stream': False,
+        }
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json',
+        }
+        try:
+            r = requests.post(url, json=payload, headers=headers, timeout=self.TIMEOUT)
+            j = r.json()
+        except Exception as e:
+            raise RuntimeError(f'DeepSeek 请求失败: {e}')
+        if r.status_code != 200 or 'error' in j:
+            raise RuntimeError(f'DeepSeek 错误({r.status_code}): {j.get("error", {}).get("message", r.text[:200])}')
+        choices = j.get('choices') or []
+        if not choices:
+            raise RuntimeError(f'DeepSeek 返回异常: {r.text[:200]}')
+        text = (choices[0].get('message') or {}).get('content') or ''
+        return text.strip()
 
 
 # ---------- 通用工具 ----------
@@ -327,17 +397,39 @@ def cmd_create(args):
 
 
 def cmd_publish(args):
-    """批量发帖"""
+    """批量发帖
+
+    --ai 时用 DeepSeek 按动漫类型（--genre）为每个账号自动生成不同帖子内容；
+    否则从 --content-file 或内置素材随机挑。
+    """
     api = AiApi(args.api, args.token)
     accounts = load_accounts(args.accounts)
+    ai = DeepSeek() if args.ai else None
+    if args.ai and not _check_ai(ai):
+        return
     posts = read_lines(args.content_file, DEFAULT_POSTS)
     n = min(args.max, len(accounts))
     selected = pick_accounts(accounts, args.max)
-    print(f'[*] 用 {n} 个账号发帖（内容源: {len(posts)} 条，delay {args.delay}）')
+    mode = f'AI 自动生成（类型: {args.genre}）' if args.ai else f'素材池 {len(posts)} 条'
+    print(f'[*] 用 {n} 个账号发帖（内容: {mode}，delay {args.delay}）')
 
     ok = fail = 0
     for a in selected:
-        content = random.choice(posts)
+        if args.ai:
+            try:
+                content = _ai_publish_content(ai, args.genre)
+                if not content:
+                    print(f'  [!!] {a["nickname"]} AI 生成内容为空')
+                    fail += 1
+                    random_delay(*[float(x) for x in args.delay.split('-')])
+                    continue
+            except Exception as e:
+                print(f'  [!!] {a["nickname"]} AI 生成失败: {e}')
+                fail += 1
+                random_delay(*[float(x) for x in args.delay.split('-')])
+                continue
+        else:
+            content = random.choice(posts)
         images = []
         if args.image_dir and os.path.isdir(args.image_dir):
             imgs = [os.path.join(args.image_dir, f) for f in os.listdir(args.image_dir)
@@ -347,7 +439,7 @@ def cmd_publish(args):
         try:
             j = api.publish(a['id'], content, images)
             if j.get('code') == 0:
-                print(f'  [ok] {a["nickname"]}(id={a["id"]}) -> post_id={j["data"]["post_id"]}')
+                print(f'  [ok] {a["nickname"]}(id={a["id"]}) -> post_id={j["data"]["post_id"]} | {content[:40]}...')
                 ok += 1
             else:
                 print(f'  [!!] {a["nickname"]} 发帖失败: {j.get("msg")}')
@@ -364,20 +456,33 @@ def cmd_comment(args):
     """批量回帖/评论
 
     --post-id 不传时，自动读取数据库已有帖子随机挑选（每次评论随机选一个帖）。
+    --ai 时用 DeepSeek 读取帖子内容自动生成针对性的评论回复。
     """
     api = AiApi(args.api, args.token)
     accounts = load_accounts(args.accounts)
+    ai = DeepSeek() if args.ai else None
+    if args.ai and not _check_ai(ai):
+        return
     comments = read_lines(args.content_file, DEFAULT_COMMENTS)
     n = min(args.max, len(accounts))
     selected = pick_accounts(accounts, args.max)
 
-    # 未指定帖子：拉取帖子池（取最近几页），随机挑
+    # 帖子池（--ai 时拉完整内容供 AI 分析；否则仅 id）
     post_pool = []
     if args.post_id:
-        print(f'[*] 用 {n} 个账号评论帖子 {args.post_id}（delay {args.delay}）')
+        if args.ai:
+            target = _find_post(api, args.post_id)
+            if target:
+                post_pool = [target]
+            else:
+                print(f'[!] 未找到帖子 {args.post_id}（AI 模式需要读取内容）')
+                return
+        else:
+            post_pool = [{'id': args.post_id}]
+        print(f'[*] 用 {n} 个账号评论帖子 {args.post_id}（{"AI生成" if args.ai else "素材"}，delay {args.delay}）')
     else:
-        print(f'[*] 用 {n} 个账号随机选帖评论（delay {args.delay}）...')
-        post_pool = _fetch_post_pool(api)
+        print(f'[*] 用 {n} 个账号随机选帖评论（{"AI生成" if args.ai else "素材"}，delay {args.delay}）...')
+        post_pool = _fetch_post_pool(api, full=args.ai)
         if not post_pool:
             print('[!] 未获取到帖子，请先发帖或用 --post-id 指定')
             return
@@ -385,15 +490,30 @@ def cmd_comment(args):
 
     ok = fail = 0
     for a in selected:
-        content = random.choice(comments)
-        post_id = args.post_id or random.choice(post_pool)
+        post = random.choice(post_pool)
+        post_id = post['id']
+        if args.ai:
+            try:
+                content = _ai_comment_content(ai, post.get('content') or '')
+                if not content:
+                    print(f'  [!!] {a["nickname"]} AI 生成评论为空')
+                    fail += 1
+                    random_delay(*[float(x) for x in args.delay.split('-')])
+                    continue
+            except Exception as e:
+                print(f'  [!!] {a["nickname"]} AI 生成失败: {e}')
+                fail += 1
+                random_delay(*[float(x) for x in args.delay.split('-')])
+                continue
+        else:
+            content = random.choice(comments)
         try:
             j = api.comment(a['id'], post_id, content,
                             parent_id=args.parent_id or 0,
                             reply_to_uid=args.reply_to_uid or 0,
                             notify=0)
             if j.get('code') == 0:
-                print(f'  [ok] {a["nickname"]}(id={a["id"]}) 评论 post={post_id} -> comment_id={j["data"]["comment_id"]}')
+                print(f'  [ok] {a["nickname"]}(id={a["id"]}) 评论 post={post_id} -> comment_id={j["data"]["comment_id"]} | {content[:30]}...')
                 ok += 1
             else:
                 print(f'  [!!] {a["nickname"]} 评论失败: {j.get("msg")}')
@@ -406,19 +526,80 @@ def cmd_comment(args):
     print(f'\n[+] 评论完成：成功 {ok}，失败 {fail}')
 
 
-def _fetch_post_pool(api, pages=3, page_size=50):
-    """拉取帖子 id 池（供点赞/收藏/评论随机选帖）"""
+def _fetch_post_pool(api, pages=3, page_size=50, full=False):
+    """拉取帖子池（[{id, content, ...}]），full=True 时含完整内容供 AI 分析"""
     pool = []
     for page in range(1, pages + 1):
         try:
-            j = api.post_list(page=page, page_size=page_size)
+            j = api.post_list(page=page, page_size=page_size, full=full)
             rows = (j.get('data') or {}).get('list') or []
             if not rows:
                 break
-            pool.extend([r['id'] for r in rows if r.get('id')])
+            pool.extend(rows)
         except Exception:
             break
     return pool
+
+
+def _find_post(api, post_id):
+    """根据 post_id 拉取完整帖子内容（遍历前 3 页）"""
+    for page in range(1, 4):
+        try:
+            j = api.post_list(page=page, page_size=50, full=True)
+            rows = (j.get('data') or {}).get('list') or []
+            if not rows:
+                break
+            for r in rows:
+                if r.get('id') == post_id:
+                    return r
+        except Exception:
+            break
+    return None
+
+
+# ---------- DeepSeek AI 辅助 ----------
+
+_DS_SYS_PUBLISH = (
+    '你是一个活跃的动漫社区用户，正在发帖。请根据给定的动漫主题/类型写一条真实、'
+    '口语化的中文帖子内容（30-150字），像普通用户分享心情/安利/吐槽，'
+    '自然一点，不要出现"作为AI""首先其次"之类机械表达，不要 emoji 堆砌。'
+    '直接输出帖子正文，不要加标题、引号或其他前缀。'
+)
+
+_DS_SYS_COMMENT = (
+    '你是一个动漫社区用户，正在评论别人的帖子。请针对帖子内容写一条自然、贴合语境的'
+    '中文评论（5-60字），口语化，带一点真实用户的口吻，不要AI痕迹，不要机械套话，'
+    '不要出现"作为AI"等。直接输出评论内容，不要引号或前缀。'
+)
+
+_DS_SYS_LIKE = (
+    '你是一个动漫社区用户，判断帖子内容是否值得点赞。'
+    '只输出"是"或"否"两个字的判断，不要其他任何内容。'
+)
+
+
+def _ai_publish_content(ai, genre):
+    return ai.chat(_DS_SYS_PUBLISH, f'动漫主题/类型：{genre}')
+
+
+def _ai_comment_content(ai, post_content):
+    if not post_content or not post_content.strip():
+        raise RuntimeError('帖子内容为空，无法生成评论')
+    return ai.chat(_DS_SYS_COMMENT, f'帖子内容：{post_content}')
+
+
+def _ai_should_like(ai, post_content):
+    if not post_content or not post_content.strip():
+        return True  # 无内容时默认点赞
+    ans = ai.chat(_DS_SYS_LIKE, f'帖子内容：{post_content}', temperature=0.5, max_tokens=16)
+    return '是' in ans or '赞' in ans
+
+
+def _check_ai(ai):
+    if not ai.available:
+        print('[!] 未配置 DEEPSEEK_API_KEY，请在 acgo/.env 添加：DEEPSEEK_API_KEY=sk-xxx')
+        return False
+    return True
 
 
 def cmd_interact(args):
@@ -426,37 +607,61 @@ def cmd_interact(args):
 
     不指定 --post-id 且启用了 like/favorite 时，自动读取数据库已有帖子随机挑选
     （每个账号点赞/收藏时随机挑一个帖子，不同账号可能不同，更接近真人）。
+    --ai 时用 DeepSeek 读取帖子内容判断是否值得点赞/收藏。
     """
     api = AiApi(args.api, args.token)
     accounts = load_accounts(args.accounts)
     selected = pick_accounts(accounts, args.max)
+    ai = DeepSeek() if args.ai else None
+    if args.ai and not _check_ai(ai):
+        return
 
-    # 需要随机选帖时（启用了 like/favorite 且未指定 post-id），预拉帖子池
-    need_random = (args.like or args.favorite) and not args.post_id
+    # 需要选帖时（启用了 like/favorite），预拉帖子池
     post_pool = []
-    if need_random:
-        print('[*] 未指定 --post-id，拉取帖子池用于随机点赞/收藏...')
-        post_pool = _fetch_post_pool(api)
-        if not post_pool:
-            print('[!] 未获取到帖子，请先发帖或用 --post-id 指定')
-            return
-        print(f'[i] 帖子池 {len(post_pool)} 条')
+    if args.like or args.favorite:
+        if args.post_id:
+            if args.ai:
+                target = _find_post(api, args.post_id)
+                if not target:
+                    print(f'[!] 未找到帖子 {args.post_id}（AI 模式需要读取内容）')
+                    return
+                post_pool = [target]
+            else:
+                post_pool = [{'id': args.post_id}]
+        else:
+            print('[*] 未指定 --post-id，拉取帖子池用于随机点赞/收藏...')
+            post_pool = _fetch_post_pool(api, full=args.ai)
+            if not post_pool:
+                print('[!] 未获取到帖子，请先发帖或用 --post-id 指定')
+                return
+            print(f'[i] 帖子池 {len(post_pool)} 条')
 
-    print(f'[*] 互动：{len(selected)} 个账号，like={args.like} favorite={args.favorite} follow={args.follow}')
+    print(f'[*] 互动：{len(selected)} 个账号，like={args.like} favorite={args.favorite} follow={args.follow}'
+          + ('，AI 判断' if args.ai else ''))
 
-    ok = fail = 0
+    ok = fail = skip = 0
     for a in selected:
         try:
             if args.like:
-                post_id = args.post_id or random.choice(post_pool)
-                j = api.like(a['id'], post_id)
-                print(f'  [ok] {a["nickname"]} 点赞 post={post_id} -> {j.get("msg")}')
-                ok += 1
+                post = random.choice(post_pool)
+                post_id = post['id']
+                if args.ai and not _ai_should_like(ai, post.get('content') or ''):
+                    print(f'  [..] {a["nickname"]} AI 判断不点赞 post={post_id}')
+                    skip += 1
+                else:
+                    j = api.like(a['id'], post_id)
+                    print(f'  [ok] {a["nickname"]} 点赞 post={post_id} -> {j.get("msg")}')
+                    ok += 1
             if args.favorite:
-                post_id = args.post_id or random.choice(post_pool)
-                j = api.favorite(a['id'], post_id)
-                print(f'  [ok] {a["nickname"]} 收藏 post={post_id} -> {j.get("msg")}')
-                ok += 1
+                post = random.choice(post_pool)
+                post_id = post['id']
+                if args.ai and not _ai_should_like(ai, post.get('content') or ''):
+                    print(f'  [..] {a["nickname"]} AI 判断不收藏 post={post_id}')
+                    skip += 1
+                else:
+                    j = api.favorite(a['id'], post_id)
+                    print(f'  [ok] {a["nickname"]} 收藏 post={post_id} -> {j.get("msg")}')
+                    ok += 1
             if args.follow:
                 for t in str(args.follow).split(','):
                     t = int(t.strip())
@@ -470,7 +675,7 @@ def cmd_interact(args):
             fail += 1
         random_delay(*[float(x) for x in args.delay.split('-')])
 
-    print(f'\n[+] 互动完成：成功 {ok}，失败 {fail}')
+    print(f'\n[+] 互动完成：成功 {ok}，跳过 {skip}，失败 {fail}')
 
 
 def cmd_accounts(args):
@@ -525,6 +730,8 @@ def main():
     p.add_argument('--accounts', required=True, help='账号信息文件（create --save 生成）')
     p.add_argument('--content-file', default='', help='帖子内容文件（每行一条），不传用内置素材')
     p.add_argument('--image-dir', default='', help='帖子图片目录（可选，随机带图）')
+    p.add_argument('--ai', action='store_true', help='用 DeepSeek 按动漫类型自动生成帖子内容')
+    p.add_argument('--genre', default='二次元动漫', help='AI 发帖的动漫类型/主题（默认: 二次元动漫）')
     p.add_argument('--max', type=int, default=20, help='最多用多少个账号发帖，默认 20')
     p.add_argument('--delay', default='3-10', help='每个账号间隔秒数（min-max），默认 3-10')
     p.set_defaults(fn=cmd_publish)
@@ -534,6 +741,7 @@ def main():
     p.add_argument('--accounts', required=True, help='账号信息文件')
     p.add_argument('--post-id', type=int, default=0, help='目标帖子 id（不传则自动读取数据库已有帖子随机选一个评论）')
     p.add_argument('--content-file', default='', help='评论内容文件（每行一条），不传用内置素材')
+    p.add_argument('--ai', action='store_true', help='用 DeepSeek 读取帖子内容自动生成针对性评论')
     p.add_argument('--parent-id', type=int, default=0, help='楼中楼父评论 id（可选）')
     p.add_argument('--reply-to-uid', type=int, default=0, help='楼中楼回复目标 uid（可选）')
     p.add_argument('--max', type=int, default=20, help='最多用多少个账号评论，默认 20')
@@ -546,6 +754,7 @@ def main():
     p.add_argument('--post-id', type=int, default=0, help='目标帖子 id（点赞/收藏用；不传则自动读取数据库已有帖子随机选一个）')
     p.add_argument('--like', action='store_true', help='点赞帖子')
     p.add_argument('--favorite', action='store_true', help='收藏帖子')
+    p.add_argument('--ai', action='store_true', help='用 DeepSeek 读取帖子内容判断是否值得点赞/收藏')
     p.add_argument('--follow', default='', help='关注的目标 uid（逗号分隔，可多个）')
     p.add_argument('--max', type=int, default=20, help='最多用多少个账号，默认 20')
     p.add_argument('--delay', default='3-8', help='每个账号间隔秒数（min-max），默认 3-8')
