@@ -26,6 +26,7 @@ CREATE TABLE `user` (
   `update_time`    INT          NOT NULL DEFAULT 0  COMMENT '更新时间',
   `privacy_posts`  TINYINT(1)   NOT NULL DEFAULT 1  COMMENT '动态可见性：1公开 0仅自己',
   `privacy_favorites` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '收藏可见性：1公开 0仅自己',
+  `browse_history` LONGTEXT     NULL COMMENT '浏览历史 JSON，最多120条，[{post_id,browse_at}]',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uniq_phone` (`phone`),
   KEY `idx_status` (`status`)

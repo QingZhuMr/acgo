@@ -394,6 +394,133 @@ class User extends BaseController
     }
 
     /**
+     * 浏览历史（业务接口：签名 + 设备密钥）
+     *
+     * GET：拉取当前用户浏览历史（最多 120 条，按浏览时间倒序）
+     *   - 返回 data：list[]，每条含帖子卡片所需字段
+     *     { id, content, images[], comment_count, like_count, favorite_count,
+     *       create_time, create_time_text, location, browse_time, browse_time_text }
+     *     （帖子已删除/被隐藏时返回 id 为 0 的占位，客户端忽略）
+     *
+     * POST：记录一条浏览历史
+     *   - 参数：post_id（必填）
+     *   - 服务端查帖子组装数据，去重（同 post_id 置顶）+ 限 120 条
+     *   - 返回 data：更新后的完整 list
+     */
+    public function browseHistory()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $isGet = 'GET' === strtoupper($this->request->method());
+        if ($isGet) {
+            return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $this->browseHistoryList($uid)]]);
+        }
+
+        // POST：记录浏览
+        $postId = (int) $this->request->post('post_id', 0);
+        if ($postId <= 0) {
+            return json(['code' => 1, 'msg' => '帖子ID无效']);
+        }
+        $post = Db::name('post')->where('id', $postId)->where('status', 1)->find();
+        if (!$post) {
+            return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $this->browseHistoryList($uid)]]);
+        }
+
+        // 读取现有历史
+        $row = Db::name('user')->where('id', $uid)->value('browse_history');
+        $list = is_string($row) ? json_decode($row, true) : null;
+        if (!is_array($list)) {
+            $list = [];
+        }
+
+        $now = time();
+        $item = [
+            'post_id'   => $postId,
+            'browse_at' => $now,
+        ];
+
+        // 去重：同 post_id 移除旧记录
+        $list = array_values(array_filter($list, fn ($v) => (int) ($v['post_id'] ?? 0) !== $postId));
+        // 置顶新记录
+        array_unshift($list, $item);
+        // 限 120 条
+        $list = array_slice($list, 0, 120);
+
+        Db::name('user')->where('id', $uid)->update([
+            'browse_history' => json_encode($list, JSON_UNESCAPED_UNICODE),
+            'update_time'    => $now,
+        ]);
+
+        return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $this->browseHistoryList($uid)]]);
+    }
+
+    /**
+     * 组装浏览历史列表（联表 post 取卡片数据，帖子已删/隐藏则过滤掉）
+     */
+    private function browseHistoryList(int $uid): array
+    {
+        $row = Db::name('user')->where('id', $uid)->value('browse_history');
+        $raw = is_string($row) ? json_decode($row, true) : null;
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $ids = array_values(array_unique(array_map(fn ($v) => (int) ($v['post_id'] ?? 0), $raw)));
+        $ids = array_filter($ids, fn ($id) => $id > 0);
+        if (!$ids) {
+            return [];
+        }
+
+        $posts = Db::name('post')
+            ->whereIn('id', $ids)
+            ->where('status', 1)
+            ->field('id,user_id,content,images,comment_count,like_count,favorite_count,create_time,location')
+            ->select()
+            ->toArray();
+        $postMap = [];
+        foreach ($posts as $p) {
+            $postMap[(int) $p['id']] = $p;
+        }
+
+        // 作者昵称/头像（走 Redis 缓存）
+        $uids = array_values(array_unique(array_column($posts, 'user_id')));
+        $userMap = UserInfoCache::batch($uids);
+
+        $list = [];
+        foreach ($raw as $v) {
+            $pid = (int) ($v['post_id'] ?? 0);
+            $p = $postMap[$pid] ?? null;
+            if (!$p) {
+                continue; // 帖子已删除/隐藏，跳过
+            }
+            $author = $userMap[(int) $p['user_id']] ?? ['nickname' => '', 'avatar' => ''];
+            $images = is_string($p['images']) ? json_decode($p['images'], true) : [];
+            $images = is_array($images) ? $images : [];
+            $list[] = [
+                'id'               => (int) $p['id'],
+                'user_id'          => (int) $p['user_id'],
+                'nickname'         => (string) ($author['nickname'] ?? ''),
+                'avatar'           => (string) ($author['avatar'] ?? ''),
+                'content'          => (string) ($p['content'] ?? ''),
+                'images'           => $images,
+                'comment_count'    => (int) ($p['comment_count'] ?? 0),
+                'like_count'       => (int) ($p['like_count'] ?? 0),
+                'favorite_count'   => (int) ($p['favorite_count'] ?? 0),
+                'create_time'      => (int) ($p['create_time'] ?? 0),
+                'create_time_text' => ($p['create_time'] ?? 0) ? date('Y-m-d H:i', (int) $p['create_time']) : '',
+                'location'         => (string) ($p['location'] ?? ''),
+                'browse_at'        => (int) ($v['browse_at'] ?? 0),
+                'browse_time_text' => ($v['browse_at'] ?? 0) ? date('Y-m-d H:i', (int) $v['browse_at']) : '',
+            ];
+        }
+        return $list;
+    }
+
+    /**
      * 上传头像（业务接口：签名 + 设备密钥）
      * multipart/form-data：字段 avatar
      *
