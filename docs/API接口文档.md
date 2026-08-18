@@ -572,9 +572,13 @@
 
 **返回 data**：`list[] { id, from_uid, from_nickname, from_avatar, post_id, post_content, comment_id, comment_content, type, is_read, create_time, create_time_text }`、`total`、`unread_count`、`page`
 
-- `type`：`1`=评论了我的帖子，`2`=回复了我的评论
+- `type`：`1`=评论了我的帖子，`2`=回复了我的评论，`3`=关注了我，`4`=赞了我的动态，`5`=收藏了我的动态
 - `post_content`/`comment_content`：展示用正文摘要（已截断、换行替换为空格）
 - `from_nickname`/`from_avatar`：触发者昵称/头像**实时联表 `user` 表获取**（经 Redis 缓存，TTL 10 分钟，见 `app/common/UserInfoCache.php`），`notification` 表不再存冗余快照；头像为空时返回默认头像
+- **折叠聚合**（未读）：同目标多条未读合并为一条——键 `type + post_id + comment_id`（type=3 关注全部合并）：
+  - `from_nickname` 为「昵称1、昵称2等N人」（最多前 2 个昵称 + 等N人）
+  - `id_list`：聚合内通知 id 数组（点击标已读/删除用）；`from_uids`：触发者 uid 数组；`count`：聚合条数
+  - **已读**通知不聚合，单条返回（`id_list=[id]`、`count=1`）
 
 > **Redis 缓存说明**：昵称/头像缓存走 **ThinkPHP `Cache::store('redis')` 门面**（配置见 `config/cache.php` 的 `redis` store，参数 `REDIS_HOST/PORT/PASSWORD/DB/TIMEOUT` 从 `.env` 读取，key 前缀 `acgo:user_info:`）。Redis 不可用（未装 phpredis 扩展 / 未启动 / 连接失败）时自动降级**直查库**，业务不受影响，仅失去缓存红利。用户改昵称 / 换头像后调用 `UserInfoCache::forget()` 主动失效。
 
@@ -601,6 +605,16 @@
 - **路径**：`POST /api/notification/readAll`
 - **鉴权**：业务（签名 + 设备密钥）
 - **功能**：将当前用户所有未读通知标记为已读。
+
+### 6.5 批量删除（业务）
+
+- **路径**：`POST /api/notification/delete`
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：删除指定通知（仅能删自己的；最多 200 条）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| ids | JSON 数组字符串 | 是 | 通知 ID 列表，如 `[1,2,3]` |
 
 ---
 
@@ -659,6 +673,7 @@
 | 通知未读数 | `/api/notification/unreadCount` | GET | 业务 |
 | 通知单条已读 | `/api/notification/read` | POST | 业务 |
 | 通知全部已读 | `/api/notification/readAll` | POST | 业务 |
+| 通知批量删除 | `/api/notification/delete` | POST | 业务 |
 | 应用信息 | `/api/index/index` | GET | 业务* |
 
 ---
@@ -675,6 +690,8 @@
 | `wallet` | 钱包余额推送 | `{ type, wallet{ paw, cny } }` |
 | `maintenance` | 平台维护状态推送 | `{ type, enabled(bool), notice(string) }` |
 | `reply_notice` | 帖子回复通知（他人评论了我的帖子/回复了我的评论） | `{ type, notification{ id, from_uid, from_nickname, from_avatar, post_id, post_content, comment_id, comment_content, type, create_time } }` |
+| `like_notice` | 点赞通知（他人赞了我的动态） | `{ type, notification{ ... type=4 } }` |
+| `favorite_notice` | 收藏通知（他人收藏了我的动态） | `{ type, notification{ ... type=5 } }` |
 | `chat_message` | 新聊天消息（密文透传，客户端 E2EE 解密） | `{ type, message{ id, chat_id, sender_id, receiver_id, msg_type, body, nonce, ephemeral_pub, client_msg_id, create_time } }` |
 | `chat_read` | 已读回执：对方读了我的消息 | `{ type, read{ chat_id, user_id, msg_id, time } }` |
 | `chat_read_sync` | 跨端已读同步：自己其他设备读了消息（清未读角标） | `{ type, read{ chat_id, user_id, msg_id, time } }` |
@@ -686,7 +703,9 @@
 
 > **通知推送机制**：`post/comment` 写入评论后同步写入 `notification` 表（不存触发者昵称/头像冗余快照），并经 `Pusher::send` 向被回复人推送 `reply_notice`（推送体携带实时昵称/头像供立即展示）。客户端收到后弹出应用内/系统通知并刷新铃铛角标；离线时通过定时轮询 `notification/unreadCount` 兜底补齐。
 >
-> **type=3 被关注通知**：`user/follow` 关注成功时给被关注者落库 `notification`（type=3）+ WS 推送 `follow_notice`；通知列表展示「xx 关注了你」，点击跳转**关注人的个人主页**。
+> **type=3 被关注通知**：`user/follow` 关注成功时给被关注者落库 `notification`（type=3）+ WS 推送 `follow_notice`；单条点击跳转**关注人的个人主页**，**聚合（多条未读关注）点击跳转我的粉丝列表**。
+>
+> **type=4/5 点赞/收藏通知**：`post/like`、`post/favorite` 首次点赞/收藏时给帖子作者落库 `notification`（type=4/5）+ WS 推送 `like_notice`/`favorite_notice`；取消点赞/收藏不产生通知（避免取消轰炸）。
 
 ---
 
