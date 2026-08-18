@@ -209,18 +209,23 @@ layui.use(['table', 'form', 'layer', 'upload'], function () {
                         choose: function (obj) {
                             // 选择文件后统一走 preview 回调校验，校验通过才手动 upload
                             obj.preview(function (index, file) {
-                                // 上传前校验平台/版本已填写（失败则不调用 upload，即不发请求）
-                                var platform = $('select[name="platform"]').val();
-                                var version = $.trim($('input[name="version"]').val());
+                                // 注意：必须限定在弹窗作用域内取值！
+                                // 页面工具栏也有 select[name=platform]（平台筛选），
+                                // 全局选择器会取到工具栏那个空值 → 误报"请先选择平台"。
+                                var $dlg = $('.layui-layer-page');
+                                var platform = $dlg.find('select[name="platform"]').val();
+                                var version = $.trim($dlg.find('input[name="version"]').val());
                                 if (!platform) { layer.msg('请先选择平台', { icon: 2 }); return; }
                                 if (!/^\d+(\.\d+){1,3}$/.test(version)) { layer.msg('请先填写版本号（如 0.1.1）', { icon: 2 }); return; }
                                 obj.upload(index, file);
                             });
                         },
                         data: function () {
+                            // 同样限定弹窗作用域
+                            var $dlg = $('.layui-layer-page');
                             return {
-                                platform: $('select[name="platform"]').val(),
-                                version: $.trim($('input[name="version"]').val())
+                                platform: $dlg.find('select[name="platform"]').val(),
+                                version: $.trim($dlg.find('input[name="version"]').val())
                             };
                         },
                         done: function (res) {
