@@ -267,6 +267,67 @@ class Chat extends BaseController
     }
 
     /**
+     * 标记已读（业务接口）
+     * POST：peer_id（对方）、msg_id（读到哪条，<= 该 id 的消息视为已读）
+     *
+     * 记录接收方最后已读消息 id，并 WS 推送 chat_read 给发送方。
+     */
+    public function read()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $peerId = (int) $this->request->post('peer_id', 0);
+        $msgId  = (int) $this->request->post('msg_id', 0);
+        if ($peerId <= 0 || $peerId === $uid) {
+            return json(['code' => 1, 'msg' => '对方用户无效']);
+        }
+
+        $chatId = $this->chatId($uid, $peerId);
+        $now    = time();
+
+        // upsert 已读记录
+        $exists = Db::name('chat_read')
+            ->where('chat_id', $chatId)
+            ->where('user_id', $uid)
+            ->find();
+        if ($exists) {
+            if ($msgId > (int) $exists['last_read_msg_id']) {
+                Db::name('chat_read')->where('id', $exists['id'])->update([
+                    'last_read_msg_id' => $msgId,
+                    'update_time'      => $now,
+                ]);
+            }
+        } else {
+            Db::name('chat_read')->insert([
+                'chat_id'          => $chatId,
+                'user_id'          => $uid,
+                'last_read_msg_id' => $msgId,
+                'update_time'      => $now,
+            ]);
+        }
+
+        // 通知发送方：我的消息已被读
+        Pusher::send(
+            ['user_id' => $peerId],
+            [
+                'type' => 'chat_read',
+                'read' => [
+                    'chat_id' => $chatId,
+                    'user_id' => $uid,
+                    'msg_id'  => $msgId,
+                    'time'    => $now,
+                ],
+            ]
+        );
+
+        return json(['code' => 0, 'msg' => 'ok', 'data' => ['msg_id' => $msgId]]);
+    }
+
+    /**
      * 会话 ID：min(uid, peer)_max(uid, peer)
      */
     protected function chatId(int $a, int $b): string

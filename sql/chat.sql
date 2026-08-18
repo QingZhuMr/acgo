@@ -34,3 +34,14 @@ CREATE TABLE IF NOT EXISTS `chat_message` (
   KEY `idx_receiver_time` (`receiver_id`, `id`),
   KEY `idx_expire` (`expire_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='聊天消息表（密文，30天缓存）';
+
+-- 已读回执（会话内每用户最后已读消息 id）
+CREATE TABLE IF NOT EXISTS `chat_read` (
+  `id`               INT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `chat_id`          VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '会话ID',
+  `user_id`          INT UNSIGNED NOT NULL DEFAULT 0  COMMENT '读者ID',
+  `last_read_msg_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '已读到的最大消息ID',
+  `update_time`      INT          NOT NULL DEFAULT 0  COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_chat_user` (`chat_id`, `user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='聊天已读回执表';
