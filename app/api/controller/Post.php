@@ -89,9 +89,10 @@ class Post extends BaseController
         }
 
         // 列表不返回 heat（热度为后台隐性推荐因子，不对用户展示）
-        // 排序：搜索时按时间倒序；浏览时用"热度×时间衰减+随机抖动"推荐，
-        // 参考小红书/B站：互动越热（评论权重最高）越靠前，新帖有初始曝光优势，
-        // 随机抖动 + 客户端 exclude_ids 配合，避免同批帖子固定顺序、反复刷到同一篇。
+        // 排序：搜索时按时间倒序；浏览时用"加权随机采样"推荐——
+        // 热度（互动加权：评论>收藏>点赞）只决定被抽到前面的"概率"，
+        // 而非稳定名次。高热度帖子偶尔排前（约 10 次出现 1 次），
+        // 低热度帖子也有机会靠前，配合客户端 exclude_ids 避免反复刷到同一篇。
         if ('' !== $keyword) {
             $list = $query
                 ->field('id,user_id,content,images,image_sizes,comment_count,create_time,location')
@@ -100,18 +101,22 @@ class Post extends BaseController
                 ->select()
                 ->toArray();
         } else {
-            // 热度分：评论权重最高（像B站弹幕/评论活跃度），点赞、收藏、后台热度次之
-            // 时间衰减：约 24 小时半衰期，(1 - 0.5^(age/86400)) 拉平后乘以衰减系数，
-            // 新帖天然加成、老帖逐步降温，但不至于被新帖淹没。
-            // 随机抖动：±5% 扰动，配合 exclude_ids 保证每次刷新排序有变化、分散曝光。
+            // 加权随机采样（Efraimidis–Spirakis）：
+            //   ORDER BY POW(RAND(), 1/weight) DESC
+            // weight 越大，RAND() 的 1/weight 次幂越接近 1（稳定靠前），反之接近 0。
+            // 权重 = 互动热度对数压缩 + 新帖时间加成：
+            //   - 热度分 = 赞×2 + 收藏×3 + 评论×5 + heat×2（评论权重最高，像B站活跃度）
+            //   - LOG 对数压缩：热度差 100 倍只变成权重差 ~2 倍，避免高热度垄断
+            //   - 时间加成：24h 内 +1、72h 内 +0.5，新帖被抽中概率略高但不压过一切
+            // 效果：热度最高的帖单次被抽到前几的概率仍明显高于普通帖，但非必然。
             $list = $query
                 ->field('id,user_id,content,images,image_sizes,comment_count,create_time,location,'
                     . 'like_count,favorite_count,heat')
-                ->orderRaw('('
-                    . '(like_count * 2 + favorite_count * 3 + comment_count * 5 + heat * 2)'
-                    . ' / POW(1.0 + (UNIX_TIMESTAMP() - create_time) / 86400.0, 1.5)'
-                    . ' * (0.95 + RAND() * 0.10)'
-                    . ') DESC')
+                ->orderRaw('POW(RAND(), 1.0 / ('
+                    . '1.0 + LN(like_count * 2 + favorite_count * 3 + comment_count * 5 + heat * 2 + 1)'
+                    . ' + IF(UNIX_TIMESTAMP() - create_time < 86400, 1.0, 0.0)'
+                    . ' + IF(UNIX_TIMESTAMP() - create_time < 259200, 0.5, 0.0)'
+                    . ')) DESC')
                 ->page($page, $pageSize)
                 ->select()
                 ->toArray();
