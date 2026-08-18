@@ -335,6 +335,57 @@ class Chat extends BaseController
     }
 
     /**
+     * 撤回消息（业务接口）
+     * POST：msg_id、peer_id（接收者）
+     *
+     * 仅发送者本人 5 分钟内可撤回；撤回后 status=2，
+     * 接收方与发送方其他设备收到 chat_recall 推送，客户端展示"撤回了一条消息"。
+     */
+    public function recall()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid    = (int) $device['user_id'];
+        $msgId  = (int) $this->request->post('msg_id', 0);
+        $peerId = (int) $this->request->post('peer_id', 0);
+        if ($msgId <= 0 || $peerId <= 0 || $peerId === $uid) {
+            return json(['code' => 1, 'msg' => '参数无效']);
+        }
+
+        $msg = Db::name('chat_message')
+            ->where('id', $msgId)
+            ->where('sender_id', $uid)
+            ->where('receiver_id', $peerId)
+            ->find();
+        if (!$msg || (int) $msg['status'] !== 1) {
+            return json(['code' => 1, 'msg' => '消息不存在或已被撤回']);
+        }
+        if ((int) $msg['create_time'] < time() - 300) {
+            return json(['code' => 1, 'msg' => '超过 5 分钟，无法撤回']);
+        }
+
+        Db::name('chat_message')->where('id', $msgId)->update(['status' => 2]);
+        $now = time();
+        $payload = [
+            'type' => 'chat_recall',
+            'recall' => [
+                'chat_id'    => (string) $msg['chat_id'],
+                'msg_id'     => (int) $msgId,
+                'sender_id'  => $uid,
+                'receiver_id'=> $peerId,
+                'time'       => $now,
+            ],
+        ];
+        // 通知接收方 + 发送方其他设备（多端同步）
+        Pusher::send(['user_id' => $peerId], $payload);
+        Pusher::send(['user_id' => $uid], $payload);
+
+        return json(['code' => 0, 'msg' => 'ok']);
+    }
+
+    /**
      * 会话 ID：min(uid, peer)_max(uid, peer)
      */
     protected function chatId(int $a, int $b): string
