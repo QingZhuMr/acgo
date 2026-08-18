@@ -270,7 +270,11 @@ class User extends BaseController
             return json(['code' => 1, 'msg' => '用户不存在']);
         }
 
+        // 兼容 avatar / file 两种字段名（layui upload 默认字段名为 file）
         $file = $this->request->file('avatar');
+        if (!$file) {
+            $file = $this->request->file('file');
+        }
         if (!$file) {
             return json(['code' => 1, 'msg' => '未接收到图片']);
         }
