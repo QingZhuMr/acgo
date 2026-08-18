@@ -71,6 +71,25 @@ class CheckLogin
             return $this->redirectLogin('kick');
         }
 
+        // 会话有效期控制：登录 6 小时有效，每次操作续期 +1 小时
+        // （精确控制用 admin_expire_at；File 驱动 mtime + expire 21600 兜底防异常）
+        $now = time();
+        $expireAt = (int) Session::get('admin_expire_at', 0);
+        if ($expireAt > 0 && $now >= $expireAt) {
+            // 超过有效期未续期：清会话踢回登录页
+            Session::clear();
+            return $this->redirectLogin();
+        }
+
+        // 续期：距上次续期 ≥60 秒才算一次操作，过期点 +1 小时
+        // ThinkPHP 8 Session 不依赖 PHP 原生 handler，必须显式 save() 才落盘。
+        $last = (int) Session::get('admin_last_active', 0);
+        if ($now - $last >= 60) {
+            Session::set('admin_last_active', $now);
+            Session::set('admin_expire_at', $now + 3600);
+            Session::save();
+        }
+
         return $next($request);
     }
 

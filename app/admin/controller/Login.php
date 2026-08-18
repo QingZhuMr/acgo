@@ -77,6 +77,8 @@ class Login extends BaseController
         Session::set('admin_id', $admin['id']);
         Session::set('admin_username', $username);
         Session::set('admin_login_token', $newToken);
+        // 会话有效期：初始 6 小时，之后每次操作由 CheckLogin 续期 +1 小时
+        Session::set('admin_expire_at', time() + 21600);
         Session::save();
 
         // 记录登录日志
