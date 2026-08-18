@@ -180,6 +180,24 @@
 - 参数：`target_uid`
 - 返回 data：`is_following`、`is_mutual`
 
+**拉黑 / 取消拉黑**：`POST /api/user/block`
+- 参数：`target_uid`（必填）
+- 行为：已拉黑则解除，未拉黑则拉黑（切换）；**拉黑时自动解除双方关注**（好友关系解除）
+- 返回 data：`is_blocked`
+
+**拉黑状态**：`GET /api/user/blockStatus`
+- 参数：`target_uid`
+- 返回 data：`is_blocked`（我是否拉黑了他）、`blocked_me`（他是否拉黑了我）
+
+**取消好友**：`POST /api/user/removeFriend`
+- 参数：`target_uid`（必填）
+- 行为：解除**双方**的关注关系（好友 = 互相关注，取关一方即可解除好友）
+
+**拉黑可见性规则**：
+- 关注互斥：任一方向已拉黑则 `follow` 关注被拒
+- 广场 `post/list`、帖子详情 `post/detail`：过滤「我拉黑的」和「拉黑我的」用户的帖子
+- 他人主页 `post/myPosts` / `post/favorites`：任一方拉黑 → 返回空 `list` + `blocked=1`（客户端展示"已被拉黑"占位，且不能关注）
+
 **我关注的列表**：`GET /api/user/following`
 - 参数：`page`、`page_size`（默认 20，最大 50）
 - 返回 data：`list[]{ user_id, nickname, avatar, follow_time, is_mutual }`、`page`、`total`、`has_more`
@@ -606,6 +624,9 @@
 | 关注/取关 | `/api/user/follow` | POST | 业务 |
 | 好友列表 | `/api/user/friends` | GET | 业务 |
 | 关注状态 | `/api/user/followStatus` | GET | 业务 |
+| 拉黑/取消拉黑 | `/api/user/block` | POST | 业务 |
+| 拉黑状态 | `/api/user/blockStatus` | GET | 业务 |
+| 取消好友 | `/api/user/removeFriend` | POST | 业务 |
 | 修改密码 | `/api/user/changePassword` | POST | 业务 |
 | 域名+WS | `/api/user/domain` | GET | 公开 |
 | 验证码 | `/api/captcha/image` | GET | 公开 |

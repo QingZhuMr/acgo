@@ -591,6 +591,19 @@ class User extends BaseController
             ]);
         }
 
+        // 拉黑互斥：任一方向已拉黑则禁止关注（先判断关注分支，取关不受限）
+        $blocked = Db::name('user_block')
+            ->where(function ($q) use ($uid, $targetUid) {
+                $q->whereOr([
+                    ['blocker_id', '=', $uid, 'blocked_id', '=', $targetUid],
+                    ['blocker_id', '=', $targetUid, 'blocked_id', '=', $uid],
+                ]);
+            })
+            ->count();
+        if ($blocked > 0) {
+            return json(['code' => 1, 'msg' => '无法关注该用户']);
+        }
+
         Db::name('user_follow')->insert([
             'follower_id'  => $uid,
             'following_id' => $targetUid,
@@ -978,6 +991,126 @@ class User extends BaseController
             'code' => 0, 'msg' => 'ok', 'data' => [
                 'is_following' => $isFollowing,
                 'is_mutual'    => $isFollowing && $isMutual,
+            ],
+        ]);
+    }
+
+    /**
+     * 拉黑 / 取消拉黑（业务接口：签名 + 设备密钥）
+     * POST：target_uid（必填）—— 已拉黑则解除，未拉黑则拉黑（切换）
+     *
+     * 拉黑时：自动解除双方的关注关系（互关 → 好友关系解除，等价"取消好友"），
+     * 拉黑后双方在广场/主页互不可见、不能关注、不能聊天。
+     */
+    public function block()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $targetUid = (int) $this->request->post('target_uid', 0);
+        if ($targetUid <= 0 || $targetUid === $uid) {
+            return json(['code' => 1, 'msg' => '不能拉黑自己']);
+        }
+        $target = Db::name('user')->where('id', $targetUid)->find();
+        if (!$target) {
+            return json(['code' => 1, 'msg' => '用户不存在']);
+        }
+
+        $exists = Db::name('user_block')
+            ->where('blocker_id', $uid)
+            ->where('blocked_id', $targetUid)
+            ->find();
+
+        if ($exists) {
+            Db::name('user_block')->where('id', $exists['id'])->delete();
+            return json([
+                'code' => 0, 'msg' => '已解除拉黑', 'data' => [
+                    'is_blocked' => false,
+                ],
+            ]);
+        }
+
+        $now = time();
+        Db::name('user_block')->insert([
+            'blocker_id'  => $uid,
+            'blocked_id'  => $targetUid,
+            'create_time' => $now,
+        ]);
+        // 拉黑自动解除双方关注（含互关 → 好友关系解除）
+        Db::name('user_follow')
+            ->where('follower_id', $uid)->where('following_id', $targetUid)
+            ->delete();
+        Db::name('user_follow')
+            ->where('follower_id', $targetUid)->where('following_id', $uid)
+            ->delete();
+        return json([
+            'code' => 0, 'msg' => '已拉黑', 'data' => [
+                'is_blocked' => true,
+            ],
+        ]);
+    }
+
+    /**
+     * 取消好友（业务接口：签名 + 设备密钥）
+     * POST：target_uid（必填）—— 解除双方的关注关系（好友 = 互相关注）
+     */
+    public function removeFriend()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $targetUid = (int) $this->request->post('target_uid', 0);
+        if ($targetUid <= 0 || $targetUid === $uid) {
+            return json(['code' => 1, 'msg' => '参数错误']);
+        }
+
+        // 解除双方关注（双向删除，好友关系即解除）
+        Db::name('user_follow')
+            ->where('follower_id', $uid)->where('following_id', $targetUid)
+            ->delete();
+        Db::name('user_follow')
+            ->where('follower_id', $targetUid)->where('following_id', $uid)
+            ->delete();
+        return json([
+            'code' => 0, 'msg' => '已解除好友关系', 'data' => [
+                'is_friend' => false,
+            ],
+        ]);
+    }
+
+    /**
+     * 拉黑状态（业务接口）
+     * GET：target_uid —— 返回 is_blocked（我是否拉黑了他）、blocked_me（他是否拉黑了我）
+     */
+    public function blockStatus()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+        $targetUid = (int) $this->request->get('target_uid', 0);
+        if ($targetUid <= 0) {
+            return json(['code' => 1, 'msg' => '参数错误']);
+        }
+        $isBlocked = (bool) Db::name('user_block')
+            ->where('blocker_id', $uid)
+            ->where('blocked_id', $targetUid)
+            ->find();
+        $blockedMe = (bool) Db::name('user_block')
+            ->where('blocker_id', $targetUid)
+            ->where('blocked_id', $uid)
+            ->find();
+        return json([
+            'code' => 0, 'msg' => 'ok', 'data' => [
+                'is_blocked' => $isBlocked,
+                'blocked_me' => $blockedMe,
             ],
         ]);
     }

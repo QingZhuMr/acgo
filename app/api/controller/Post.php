@@ -70,6 +70,12 @@ class Post extends BaseController
             }
         }
 
+        // 拉黑互不可见：过滤「我拉黑的」和「拉黑我的」用户的帖子
+        $blockedIds = $this->blockedUserIds($this->currentUserId());
+        if ($blockedIds) {
+            $query->whereNotIn('user_id', $blockedIds);
+        }
+
         // 列表不返回 heat（热度为后台隐性推荐因子，不对用户展示）
         // 排序：搜索时按时间倒序；浏览时用热度权重随机推荐
         $order = '' !== $keyword ? 'create_time DESC' : 'RAND() * (heat + 1) DESC';
@@ -129,6 +135,10 @@ class Post extends BaseController
         }
 
         $uid = $this->currentUserId();
+        // 拉黑互不可见：帖子作者与我任一方拉黑 → 拒绝查看
+        if ($uid > 0 && in_array((int) $post['user_id'], $this->blockedUserIds($uid), true)) {
+            return json(['code' => 1, 'msg' => '帖子不可见']);
+        }
         $post['id']               = (int) $post['id'];
         $post['user_id']          = (int) $post['user_id'];
         $post['comment_count']    = (int) $post['comment_count'];
@@ -599,6 +609,35 @@ class Post extends BaseController
      * list / detail 为公开接口（仅签名，中间件不注入 deviceInfo），
      * 客户端可顺带携带 device_key，用于返回 is_liked 字段。
      */
+    /**
+     * 与当前用户存在拉黑关系的用户 id 集合（我拉黑的 + 拉黑我的）。
+     * 广场/主页帖子列表据此过滤，实现拉黑后互不可见。
+     */
+    private function blockedUserIds(int $uid): array
+    {
+        if ($uid <= 0) {
+            return [];
+        }
+        $ids = [];
+        $blocked = Db::name('user_block')
+            ->where('blocker_id', $uid)
+            ->field('blocked_id')
+            ->select()
+            ->toArray();
+        foreach ($blocked as $r) {
+            $ids[] = (int) $r['blocked_id'];
+        }
+        $blockers = Db::name('user_block')
+            ->where('blocked_id', $uid)
+            ->field('blocker_id')
+            ->select()
+            ->toArray();
+        foreach ($blockers as $r) {
+            $ids[] = (int) $r['blocker_id'];
+        }
+        return array_values(array_unique($ids));
+    }
+
     private function currentUserId(): int
     {
         $deviceKey = (string) $this->request->header('x-device-key', '');
@@ -904,8 +943,16 @@ class Post extends BaseController
         $page     = max(1, (int) $this->request->param('page', 1));
         $pageSize = min(50, max(1, (int) $this->request->param('page_size', 10)));
 
-        // 访问他人主页：校验对方收藏可见性（仅自己可见则拒绝展示）
+        // 访问他人主页：任一方已拉黑 → 动态/收藏不可见（blocked=1）
         if ($targetUid > 0 && $targetUid !== $uid) {
+            if (in_array($targetUid, $this->blockedUserIds($uid), true)) {
+                return json(['code' => 0, 'msg' => 'ok', 'data' => [
+                    'list'    => [],
+                    'page'    => $page,
+                    'visible' => 0,
+                    'blocked' => 1,
+                ]]);
+            }
             $privacy = (int) (Db::name('user')->where('id', $targetUid)->value('privacy_favorites') ?? 1);
             if (0 === $privacy) {
                 return json(['code' => 0, 'msg' => 'ok', 'data' => [
@@ -982,9 +1029,16 @@ class Post extends BaseController
         $page     = max(1, (int) $this->request->param('page', 1));
         $pageSize = min(50, max(1, (int) $this->request->param('page_size', 10)));
 
-        // 访问他人主页：校验对方动态可见性（仅自己可见则拒绝展示）
-        $viewUid = $targetUid > 0 ? $targetUid : $uid;
+        // 访问他人主页：任一方已拉黑 → 动态/收藏不可见（blocked=1）
         if ($targetUid > 0 && $targetUid !== $uid) {
+            if (in_array($targetUid, $this->blockedUserIds($uid), true)) {
+                return json(['code' => 0, 'msg' => 'ok', 'data' => [
+                    'list'    => [],
+                    'page'    => $page,
+                    'visible' => 0,
+                    'blocked' => 1,
+                ]]);
+            }
             $privacy = (int) (Db::name('user')->where('id', $targetUid)->value('privacy_posts') ?? 1);
             if (0 === $privacy) {
                 return json(['code' => 0, 'msg' => 'ok', 'data' => [
