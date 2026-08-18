@@ -264,7 +264,8 @@ class User extends BaseController
      */
     public function uploadAvatar()
     {
-        $id = (int) $this->request->post('id', 0);
+        // id 支持 URL 参数或 POST 字段（前端 layui upload 通过 URL 传 id）
+        $id = (int) $this->request->param('id', 0);
         if (!$id || !Db::name('user')->where('id', $id)->find()) {
             return json(['code' => 1, 'msg' => '用户不存在']);
         }
