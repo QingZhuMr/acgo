@@ -553,6 +553,23 @@
 
 > 无更新时 `data` 为 `{}`（`new \stdClass()`）。
 
+### 5.2 上传安装包（管理后台）
+
+- **路径**：`POST /admin/update/upload`
+- **鉴权**：管理员会话
+- **功能**：按平台 + 版本号生成文件名并存储到 `public/app/{platform}/`，返回完整下载 URL（index 域名）。
+  文件名规则：`{appEn}-{platform}-{version}.{ext}`，如 `yeahbear-win-0.1.1.zip`。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| platform | string | 是 | `win/mac/linux/android/ios/ipados/harmony` |
+| version | string | 是 | 版本号，如 `0.1.1` |
+| file | file | 是 | 安装包文件（≤200MB；扩展名 exe/zip/dmg/pkg/apk/hsp/tar/gz/appimage/aab/7z） |
+
+**返回 data**：`url`（如 `https://www.yeahbear.cn/app/win/yeahbear-win-0.1.1.zip`）、`filename`
+
+> 管理页「新增版本推送」表单的下载地址栏有「上传安装包」按钮：选择文件 → 按已填平台/版本号上传 → 成功后自动填入 URL。
+
 ---
 
 ## 6. 通知（Notification）
