@@ -5,7 +5,9 @@ namespace app\admin\controller;
 
 use app\BaseController;
 use app\common\AdminLog;
+use app\common\ImageProcessor;
 use app\common\Pusher;
+use app\common\UserInfoCache;
 use think\facade\Db;
 use think\facade\Session;
 use think\facade\View;
@@ -214,7 +216,7 @@ class User extends BaseController
     }
 
     /**
-     * 编辑用户资料（不含密码，不含头像，头像固定为默认值）
+     * 编辑用户资料（不含密码；支持修改头像：avatar 传相对路径如 /static/avatar/u1_xxx.jpg）
      */
     public function edit()
     {
@@ -225,18 +227,110 @@ class User extends BaseController
         if (!$user) return json(['code' => 1, 'msg' => '用户不存在']);
 
         $nickname = trim((string) $this->request->post('nickname', ''));
+        $avatar   = trim((string) $this->request->post('avatar', ''));
 
         if ('' === $nickname) return json(['code' => 1, 'msg' => '昵称不能为空']);
 
-        // 手机号是登录标识，编辑时不可修改，保留原值
-        Db::name('user')->where('id', $id)->update([
+        $data = [
             'nickname'    => $nickname,
             'update_time' => time(),
-        ]);
+        ];
+
+        // 头像：仅允许静态目录相对路径（防止任意 URL / XSS）
+        if ('' !== $avatar) {
+            if (strpos($avatar, '/static/avatar/') !== 0) {
+                return json(['code' => 1, 'msg' => '头像路径不合法']);
+            }
+            $data['avatar'] = $avatar;
+        }
+
+        Db::name('user')->where('id', $id)->update($data);
+
+        // 昵称/头像变化立即失效缓存
+        UserInfoCache::forget($id);
 
         $this->log('user_edit', '后台编辑用户');
 
         return json(['code' => 0, 'msg' => '保存成功']);
+    }
+
+    /**
+     * 上传用户头像（后台管理）
+     *
+     * POST multipart：id + avatar（图片文件）
+     * 校验：image 类型、≤5MB；压缩（最大边 512、超 256KB 压缩），
+     * 存 public/static/avatar/u{id}_{ts}_{rand}.{ext}；返回相对路径（不落库，
+     * 由 edit() 保存到用户表，避免上传即生效、取消却已改库）。
+     */
+    public function uploadAvatar()
+    {
+        $id = (int) $this->request->post('id', 0);
+        if (!$id || !Db::name('user')->where('id', $id)->find()) {
+            return json(['code' => 1, 'msg' => '用户不存在']);
+        }
+
+        $file = $this->request->file('avatar');
+        if (!$file) {
+            return json(['code' => 1, 'msg' => '未接收到图片']);
+        }
+
+        $allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'];
+        $mime = strtolower((string) $file->getMime());
+        if (!in_array($mime, $allowed, true)) {
+            return json(['code' => 1, 'msg' => '仅支持 jpg/png/gif/webp/bmp 图片']);
+        }
+        $size = $file->getSize();
+        if ($size <= 0 || $size > 5 * 1024 * 1024) {
+            return json(['code' => 1, 'msg' => '图片不能超过5MB']);
+        }
+
+        $srcPath = $file->getPathname();
+        if ('' === $srcPath || !is_file($srcPath)) {
+            return json(['code' => 1, 'msg' => '头像上传失败']);
+        }
+
+        // 压缩（超 256KB 才压，GIF 动画保留；头像最大边 512）
+        $bytes = ImageProcessor::compressToMaxBytes($srcPath, 256 * 1024, 512);
+        if ('' === $bytes) {
+            return json(['code' => 1, 'msg' => '头像处理失败']);
+        }
+
+        $ext = self::detectExtByBytes($bytes) ?: 'jpg';
+        $name = 'u' . $id . '_' . date('YmdHis') . '_' . substr(md5((string) microtime(true)), 0, 8) . '.' . $ext;
+        $dir = app()->getRootPath() . 'public/static/avatar';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        $target = $dir . DIRECTORY_SEPARATOR . $name;
+        $ok = @file_put_contents($target, $bytes);
+        if (false === $ok) {
+            return json(['code' => 1, 'msg' => '头像上传失败']);
+        }
+        @chmod($target, 0666 & ~umask());
+
+        return json([
+            'code' => 0,
+            'msg'  => '上传成功',
+            'data' => ['avatar' => '/static/avatar/' . $name],
+        ]);
+    }
+
+    /** 根据字节头判定图片扩展名 */
+    private static function detectExtByBytes(string $bytes): string
+    {
+        if (strlen($bytes) >= 8 && substr($bytes, 0, 8) === "\x89PNG\r\n\x1a\n") {
+            return 'png';
+        }
+        if (strlen($bytes) >= 6 && (substr($bytes, 0, 6) === 'GIF87a' || substr($bytes, 0, 6) === 'GIF89a')) {
+            return 'gif';
+        }
+        if (strlen($bytes) >= 4 && substr($bytes, 0, 4) === 'RIFF' && substr($bytes, 8, 4) === 'WEBP') {
+            return 'webp';
+        }
+        if (strlen($bytes) >= 2 && ord($bytes[0]) === 0xFF && ord($bytes[1]) === 0xD8) {
+            return 'jpg';
+        }
+        return '';
     }
 
     /**
