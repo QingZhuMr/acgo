@@ -436,6 +436,8 @@
 **断线增量同步**：`GET /api/chat/sync`
 - 参数：`after_id`（本地最大消息 id 游标，默认 0）、`limit`（默认 50，最大 100）
 - 功能：返回 `after_id` 之后当前用户**参与（发送或接收）**的所有未过期消息，按 id 升序；客户端用于**离线期间的漏消息补偿**（WS 重连后拉取），与 WS 推送共用同一套解密入库逻辑
+- 返回：`data.list`（消息数组，字段同 history：id/chat_id/sender_id/receiver_id/msg_type/body/nonce/ephemeral_pub/client_msg_id/status/create_time）、`data.server_time`
+- 坑：`select()` 后**必须 `->toArray()`** 再 array_map（ThinkPHP Collection 直接 `(array)` 强转会得到 `["items"=>...]` 结构，`$r['id']` 未定义 → 500，曾导致离线同步完全失效）
 - 返回 data：`list[]`（同 history 消息结构）、`server_time`
 
 **聊天图片上传**：`POST /api/chat/upload`
