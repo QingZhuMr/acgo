@@ -80,7 +80,7 @@ class Post extends BaseController
         // 排序：搜索时按时间倒序；浏览时用热度权重随机推荐
         $order = '' !== $keyword ? 'create_time DESC' : 'RAND() * (heat + 1) DESC';
         $list = $query
-            ->field('id,user_id,content,images,comment_count,create_time,location')
+            ->field('id,user_id,content,images,image_sizes,comment_count,create_time,location')
             ->orderRaw($order)
             ->page($page, $pageSize)
             ->select()
@@ -103,6 +103,7 @@ class Post extends BaseController
             $item['create_time']   = (int) $item['create_time'];
             $item['create_time_text'] = $item['create_time'] ? date('Y-m-d H:i', $item['create_time']) : '';
             $item['images']        = self::decodeImages($item['images'] ?? '');
+            $item['image_sizes']   = self::decodeImageSizes($item['image_sizes'] ?? '');
             $item['location']      = (string) ($item['location'] ?? '');
             $item['nickname']      = $u['nickname'] ?? '';
             $item['avatar']        = ($u['avatar'] ?? '') ?: '/static/admin/img/default-avatar.png';
@@ -159,6 +160,7 @@ class Post extends BaseController
         $post['create_time']      = (int) $post['create_time'];
         $post['create_time_text'] = $post['create_time'] ? date('Y-m-d H:i', $post['create_time']) : '';
         $post['images']           = self::decodeImages($post['images'] ?? '');
+        $post['image_sizes']      = self::decodeImageSizes($post['image_sizes'] ?? '');
         $post['location']         = (string) ($post['location'] ?? '');
         unset($post['ip']); // 不向客户端暴露原始 IP，仅返回归属地
 
@@ -292,6 +294,7 @@ class Post extends BaseController
 
         // 图片处理（原始 ≤10MB，上传后 >1MB 压缩到 ≤1MB）
         $images = [];
+        $imageSizes = []; // [[w,h], ...] 与 images 等长
         $files  = $this->request->file('images');
         if ($files) {
             $files = is_array($files) ? $files : [$files];
@@ -306,11 +309,13 @@ class Post extends BaseController
                 if ($file->getSize() > self::IMAGE_SIZE_MAX) {
                     return json(['code' => 1, 'msg' => '单张图片不能超过10MB']);
                 }
-                $url = self::saveCompressedImage($file, $uid, 'public/static/post', 'p', self::IMAGE_COMPRESS_MAX, self::POST_IMAGE_MAX_DIM);
+                $size = [0, 0];
+                $url = self::saveCompressedImage($file, $uid, 'public/static/post', 'p', self::IMAGE_COMPRESS_MAX, self::POST_IMAGE_MAX_DIM, $size);
                 if ($url === null) {
                     return json(['code' => 1, 'msg' => '图片处理失败']);
                 }
                 $images[] = $url;
+                $imageSizes[] = [$size[0], $size[1]];
             }
         }
 
@@ -320,6 +325,7 @@ class Post extends BaseController
             'user_id'       => $uid,
             'content'       => $content,
             'images'        => $images ? json_encode($images, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null,
+            'image_sizes'   => $imageSizes ? json_encode($imageSizes) : null,
             'heat'          => 0,
             'comment_count' => 0,
             'report_count'  => 0,
@@ -728,9 +734,11 @@ class Post extends BaseController
      * @param string $dir      相对根目录路径（如 public/static/post）
      * @param string $prefix   文件名前缀（p/c/u/s）
      * @param int    $maxBytes 压缩目标大小（> 该值则压缩）
+     * @param int    $maxDim   最长边限制（0=不限制）
+     * @param array|null $size 输出参数：保存成功后写入 [宽, 高]
      * @return string|null 访问 URL（失败返回 null）
      */
-    private static function saveCompressedImage($file, int $uid, string $dir, string $prefix, int $maxBytes, int $maxDim = 0): ?string
+    private static function saveCompressedImage($file, int $uid, string $dir, string $prefix, int $maxBytes, int $maxDim = 0, ?array &$size = null): ?string
     {
         $base = app()->getRootPath() . trim($dir, '/');
         if (!is_dir($base)) {
@@ -758,6 +766,15 @@ class Post extends BaseController
             return null;
         }
         @chmod($target, 0666 & ~umask());
+
+        // 记录图片真实宽高（客户端据此按比例动态布局卡片封面）
+        if (is_array($size)) {
+            $info = @getimagesizefromstring($bytes);
+            if ($info !== false) {
+                $size[0] = (int) $info[0];
+                $size[1] = (int) $info[1];
+            }
+        }
 
         // public/static/post → /static/post/xxx
         return '/' . trim(str_replace('public', '', $dir), '/') . '/' . $name;
@@ -788,6 +805,25 @@ class Post extends BaseController
         }
         $arr = json_decode($images, true);
         return is_array($arr) ? array_values(array_map('strval', $arr)) : [];
+    }
+
+    /** 解码图片宽高字段（JSON [[w,h],...]），容错 */
+    private static function decodeImageSizes(?string $sizes): array
+    {
+        if (!$sizes) {
+            return [];
+        }
+        $arr = json_decode($sizes, true);
+        if (!is_array($arr)) {
+            return [];
+        }
+        $out = [];
+        foreach ($arr as $s) {
+            if (is_array($s) && isset($s[0], $s[1])) {
+                $out[] = [(int) $s[0], (int) $s[1]];
+            }
+        }
+        return $out;
     }
 
     /**
@@ -970,7 +1006,7 @@ class Post extends BaseController
             ->join('post p', 'p.id = f.post_id')
             ->where('f.user_id', $viewUid)
             ->where('p.status', 1)
-            ->field('p.id,p.user_id,p.content,p.images,p.comment_count,p.create_time,p.location,p.favorite_count')
+            ->field('p.id,p.user_id,p.content,p.images,p.image_sizes,p.comment_count,p.create_time,p.location,p.favorite_count')
             ->order('f.create_time', 'desc')
             ->page($page, $pageSize)
             ->select()
@@ -995,6 +1031,7 @@ class Post extends BaseController
             $item['create_time']   = (int) $item['create_time'];
             $item['create_time_text'] = $item['create_time'] ? date('Y-m-d H:i', $item['create_time']) : '';
             $item['images']        = self::decodeImages($item['images'] ?? '');
+            $item['image_sizes']   = self::decodeImageSizes($item['image_sizes'] ?? '');
             $item['location']      = (string) ($item['location'] ?? '');
             $item['nickname']      = $u['nickname'] ?? '';
             $item['avatar']        = ($u['avatar'] ?? '') ?: '/static/admin/img/default-avatar.png';
@@ -1052,7 +1089,7 @@ class Post extends BaseController
         $list = Db::name('post')
             ->where('user_id', $viewUid)
             ->where('status', 1)
-            ->field('id,user_id,content,images,comment_count,favorite_count,create_time,location')
+            ->field('id,user_id,content,images,image_sizes,comment_count,favorite_count,create_time,location')
             ->order('create_time', 'desc')
             ->page($page, $pageSize)
             ->select()
@@ -1077,6 +1114,7 @@ class Post extends BaseController
             $item['create_time']   = (int) $item['create_time'];
             $item['create_time_text'] = $item['create_time'] ? date('Y-m-d H:i', $item['create_time']) : '';
             $item['images']        = self::decodeImages($item['images'] ?? '');
+            $item['image_sizes']   = self::decodeImageSizes($item['image_sizes'] ?? '');
             $item['location']      = (string) ($item['location'] ?? '');
             $item['nickname']      = $u['nickname'] ?? '';
             $item['avatar']        = ($u['avatar'] ?? '') ?: '/static/admin/img/default-avatar.png';

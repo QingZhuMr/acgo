@@ -193,6 +193,10 @@
 - 参数：`target_uid`（必填）
 - 行为：解除**双方**的关注关系（好友 = 互相关注，取关一方即可解除好友）
 
+**设置好友备注**：`POST /api/user/setRemark`
+- 参数：`target_uid`（必填）、`remark`（最长 50 字，可空=清除备注）
+- 行为：备注存于「我关注对方」的 `user_follow` 行，仅自己可见；`friends` 列表返回 `remark` 字段
+
 **拉黑可见性规则**：
 - 关注互斥：任一方向已拉黑则 `follow` 关注被拒
 - 广场 `post/list`、帖子详情 `post/detail`：过滤「我拉黑的」和「拉黑我的」用户的帖子
@@ -266,7 +270,7 @@
 | keyword | string | 否 | 关键词，模糊匹配正文，此时按时间倒序 |
 | device_key | string | 否 | 可选登录态，用于返回 `is_liked` |
 
-**返回 data**：`list[] { id, user_id, content(截取80字), images[], comment_count, like_count, is_liked, create_time, create_time_text, nickname, avatar, location }`、`page`
+**返回 data**：`list[] { id, user_id, content(截取80字), images[], image_sizes[], comment_count, like_count, is_liked, create_time, create_time_text, nickname, avatar, location }`、`page`（`image_sizes` 与 images 等长的 `[[宽,高],...]`，客户端据此按图片真实比例动态布局卡片封面，最大 3:4；旧帖子无该字段）
 
 ### 3.2 帖子详情（公开）
 

@@ -655,6 +655,47 @@ class User extends BaseController
     }
 
     /**
+     * 设置好友备注（业务接口：签名 + 设备密钥）
+     * POST：target_uid（必填）、remark（最长 50 字，可空=清除备注）
+     *
+     * 备注存于「我关注对方」的 user_follow 行（仅自己可见）。
+     */
+    public function setRemark()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+        $targetUid = (int) $this->request->post('target_uid', 0);
+        if ($targetUid <= 0 || $targetUid === $uid) {
+            return json(['code' => 1, 'msg' => '参数错误']);
+        }
+        $remark = trim((string) $this->request->post('remark', ''));
+        if (mb_strlen($remark) > 50) {
+            return json(['code' => 1, 'msg' => '备注最长 50 字']);
+        }
+
+        $exists = Db::name('user_follow')
+            ->where('follower_id', $uid)
+            ->where('following_id', $targetUid)
+            ->find();
+        if ($exists) {
+            Db::name('user_follow')
+                ->where('id', $exists['id'])
+                ->update(['remark' => $remark]);
+        } else {
+            // 非好友也可备注（单向关注存在时）；无关注关系则不落库（无可存储行）
+            return json(['code' => 1, 'msg' => '还不是好友，无法设置备注']);
+        }
+        return json([
+            'code' => 0, 'msg' => '备注已保存', 'data' => [
+                'remark' => $remark,
+            ],
+        ]);
+    }
+
+    /**
      * 好友列表（互相关注，业务接口）
      * GET：page、page_size（默认 10，最大 50）
      */
@@ -672,10 +713,15 @@ class User extends BaseController
         // 好友 = 互相关注：我关注了他 且 他关注了我
         $myFollowing = Db::name('user_follow')
             ->where('follower_id', $uid)
-            ->field('following_id')
+            ->field('following_id,remark')
             ->select()
             ->toArray();
         $followingIds = array_column($myFollowing, 'following_id');
+        // 我关注的好友 → 备注 映射（remark 存于"我关注对方"的那行）
+        $remarkMap = [];
+        foreach ($myFollowing as $row) {
+            $remarkMap[(int) $row['following_id']] = (string) ($row['remark'] ?? '');
+        }
         if (!$followingIds) {
             return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => [], 'page' => $page]]);
         }
@@ -719,6 +765,7 @@ class User extends BaseController
                     'avatar'      => (string) ($u['avatar'] ?? ''),
                     'follow_time' => (int) $r['create_time'],
                     'online'      => isset($onlineMap[$fid]),
+                    'remark'      => $remarkMap[$fid] ?? '',
                 ];
             }
         }
