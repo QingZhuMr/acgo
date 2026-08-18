@@ -430,6 +430,24 @@ class User extends BaseController
             return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => []]]);
         }
 
+        // POST：删除单条浏览历史（delete_post_id）
+        $delPostId = (int) $this->request->post('delete_post_id', 0);
+        if ($delPostId > 0) {
+            $row = Db::name('user')->where('id', $uid)->value('browse_history');
+            $list = is_string($row) ? json_decode($row, true) : null;
+            if (is_array($list)) {
+                $list = array_values(array_filter(
+                    $list,
+                    fn ($v) => (int) ($v['post_id'] ?? 0) !== $delPostId
+                ));
+                Db::name('user')->where('id', $uid)->update([
+                    'browse_history' => $list ? json_encode($list, JSON_UNESCAPED_UNICODE) : null,
+                    'update_time'    => time(),
+                ]);
+            }
+            return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $this->browseHistoryList($uid)]]);
+        }
+
         // POST：记录浏览
         $postId = (int) $this->request->post('post_id', 0);
         if ($postId <= 0) {
