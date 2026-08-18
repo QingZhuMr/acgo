@@ -59,6 +59,12 @@ class ApiAuth
         $path = strtolower(trim((string) $request->pathinfo(), '/'));
         $appSecret = (string) env('API_SECRET', '');
 
+        // ========== 0. AI 专用接口：完全跳过签名与设备密钥 ==========
+        // ai/* 靠 X-AI-Token 独立保护（控制器内校验），免 HMAC 签名方便脚本调用
+        if (str_starts_with($path, 'ai/')) {
+            return $next($request);
+        }
+
         // ========== 1. 通用签名校验 ==========
         $check = $this->verifySignature($request, $path, $appSecret);
         if ($check !== null) {
