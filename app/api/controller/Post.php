@@ -857,6 +857,54 @@ class Post extends BaseController
     }
 
     /**
+     * 点赞/收藏通知统一落库 + WS 推送（type=4 点赞、type=5 收藏）。
+     * 只通知帖子作者本人；自己点赞/收藏自己的帖子不通知。
+     */
+    private function notifyInteraction(int $uid, array $post, int $postId, int $type)
+    {
+        $targetUid = (int) $post['user_id'];
+        if ($targetUid <= 0 || $targetUid === $uid) {
+            return;
+        }
+        $now = time();
+        $postExcerpt = mb_substr((string) $post['content'], 0, 200);
+        $from = Db::name('user')->where('id', $uid)->field('nickname,avatar')->find();
+        $fromName = (string) ($from['nickname'] ?? '');
+        $fromAvatar = (string) ($from['avatar'] ?? '');
+
+        Db::name('notification')->insert([
+            'user_id'          => $targetUid,
+            'from_uid'         => $uid,
+            'post_id'          => $postId,
+            'post_content'     => $postExcerpt,
+            'comment_id'       => 0,
+            'comment_content'  => '',
+            'type'             => $type,
+            'is_read'          => 0,
+            'create_time'      => $now,
+        ]);
+
+        Pusher::send(
+            ['user_id' => $targetUid],
+            [
+                'type'          => $type === 5 ? 'favorite_notice' : 'like_notice',
+                'notification'  => [
+                    'id'              => (int) $postId,
+                    'from_uid'        => $uid,
+                    'from_nickname'   => $fromName,
+                    'from_avatar'     => $fromAvatar,
+                    'post_id'         => $postId,
+                    'post_content'    => $postExcerpt,
+                    'comment_id'      => 0,
+                    'comment_content' => '',
+                    'type'            => $type,
+                    'create_time'     => $now,
+                ],
+            ]
+        );
+    }
+
+    /**
      * 帖子点赞 / 取消点赞（切换，业务接口）
      * POST：post_id
      * 返回：is_liked、like_count
@@ -896,6 +944,9 @@ class Post extends BaseController
             ]);
             Db::name('post')->where('id', $postId)->inc('like_count')->update();
             $isLiked = true;
+
+            // 点赞通知（type=4）：给帖子作者落库 + WS 推送（取消赞不通知）
+            $this->notifyInteraction($uid, $post, $postId, 4);
         }
 
         return json([
@@ -948,6 +999,9 @@ class Post extends BaseController
             ]);
             Db::name('post')->where('id', $postId)->inc('favorite_count')->update();
             $isFavorited = true;
+
+            // 收藏通知（type=5）：给帖子作者落库 + WS 推送（取消收藏不通知）
+            $this->notifyInteraction($uid, $post, $postId, 5);
         }
 
         return json([
