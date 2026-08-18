@@ -592,6 +592,43 @@
 - `type`：`1`=评论了我的帖子，`2`=回复了我的评论，`3`=关注了我，`4`=赞了我的动态，`5`=收藏了我的动态
 - `post_content`/`comment_content`：展示用正文摘要（已截断、换行替换为空格）
 - `from_nickname`/`from_avatar`：触发者昵称/头像**实时联表 `user` 表获取**（经 Redis 缓存，TTL 10 分钟，见 `app/common/UserInfoCache.php`），`notification` 表不再存冗余快照；头像为空时返回默认头像
+
+---
+
+## 12. AI/机器人专用接口（`app/api/controller/Ai.php`）
+
+**鉴权**：**免 HMAC 签名、免设备密钥**（中间件对 `ai/*` 前缀直接放行），仅需请求头：
+
+```
+X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
+```
+
+> 用途：本地自动化脚本（机器人灌帖/评论等）直接调用，无需模拟客户端签名与登录流程。
+
+### 12.1 批量创建用户
+
+- **路径**：`POST /api/ai/batchCreate`
+- **功能**：批量创建机器人/种子账号，手机号从 `10000000001` 起始递增（格式正确 11 位、不占用真实手机号段、不冲突）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| prefix | string | 是 | 昵称前缀（昵称 = 前缀 + 序号，如 `二次元酱01`） |
+| count | int | 是 | 创建数量 1-50 |
+| password | string | 否 | 统一密码，默认 `123456`（≥6位） |
+
+**返回 data**：`accounts[] { id, nickname, phone, password }`
+
+### 12.2 上传头像
+
+- **路径**：`POST /api/ai/uploadAvatar`（multipart）
+- **功能**：给指定用户设置头像（存 `public/static/avatar/ai_{uid}.{ext}`，覆盖同名，更新 user 表）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uid | int | 是 | 目标用户 id |
+| avatar | file | 是 | 头像图片（png/jpg/jpeg/gif/webp，≤5MB） |
+
+**返回 data**：`avatar`（相对路径，如 `/static/avatar/ai_22.png`）
 - **折叠聚合**（未读）：同目标多条未读合并为一条——键 `type + post_id + comment_id`（type=3 关注全部合并）：
   - `from_nickname` 为「昵称1、昵称2等N人」（最多前 2 个昵称 + 等N人）
   - `id_list`：聚合内通知 id 数组（点击标已读/删除用）；`from_uids`：触发者 uid 数组；`count`：聚合条数
