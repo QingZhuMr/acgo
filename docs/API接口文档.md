@@ -397,6 +397,10 @@
 - 参数：`peer_id`、`before_id`（游标）、`page_size`（默认50最大100）
 - 返回 data：`list[]`（密文消息，按 id 倒序）
 
+**标记已读**：`POST /api/chat/read`
+- 参数：`peer_id`、`msg_id`（读到哪条）
+- 功能：记录接收方最后已读消息 id（`chat_read` 表），并 WS 推送 `chat_read` 给发送方（发送方可展示"已读"状态）
+
 ### 3.10 评论点赞 / 取消（切换，业务）
 
 - **路径**：`POST /api/post/commentLike`
