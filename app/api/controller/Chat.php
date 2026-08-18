@@ -323,11 +323,26 @@ class Chat extends BaseController
             ]);
         }
 
-        // 通知发送方：我的消息已被读
+        // 通知发送方：我的消息已被读（推发送方所有设备）
         Pusher::send(
             ['user_id' => $peerId],
             [
                 'type' => 'chat_read',
+                'read' => [
+                    'chat_id' => $chatId,
+                    'user_id' => $uid,
+                    'msg_id'  => $msgId,
+                    'time'    => $now,
+                ],
+            ]
+        );
+
+        // 跨端已读同步：通知自己其他设备「我已读到该条」，用于清零未读角标
+        // （发起读的设备也收，幂等无害）
+        Pusher::send(
+            ['user_id' => $uid],
+            [
+                'type' => 'chat_read_sync',
                 'read' => [
                     'chat_id' => $chatId,
                     'user_id' => $uid,

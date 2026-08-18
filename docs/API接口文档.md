@@ -402,7 +402,9 @@
 
 **标记已读**：`POST /api/chat/read`
 - 参数：`peer_id`、`msg_id`（读到哪条）
-- 功能：记录接收方最后已读消息 id（`chat_read` 表），并 WS 推送 `chat_read` 给发送方（发送方可展示"已读"状态）
+- 功能：记录接收方最后已读消息 id（`chat_read` 表），并 WS 推送：
+  - `chat_read` 给**发送方**（发送方可展示"已读"状态，多端一致）
+  - `chat_read_sync` 给**读方自己**所有在线设备（**跨端已读同步**：清零未读角标，发起读的设备也收，幂等无害）
 
 **撤回消息**：`POST /api/chat/recall`
 - 参数：`peer_id`、`msg_id`
@@ -632,6 +634,12 @@
 | `wallet` | 钱包余额推送 | `{ type, wallet{ paw, cny } }` |
 | `maintenance` | 平台维护状态推送 | `{ type, enabled(bool), notice(string) }` |
 | `reply_notice` | 帖子回复通知（他人评论了我的帖子/回复了我的评论） | `{ type, notification{ id, from_uid, from_nickname, from_avatar, post_id, post_content, comment_id, comment_content, type, create_time } }` |
+| `chat_message` | 新聊天消息（密文透传，客户端 E2EE 解密） | `{ type, message{ id, chat_id, sender_id, receiver_id, msg_type, body, nonce, ephemeral_pub, client_msg_id, create_time } }` |
+| `chat_read` | 已读回执：对方读了我的消息 | `{ type, read{ chat_id, user_id, msg_id, time } }` |
+| `chat_read_sync` | 跨端已读同步：自己其他设备读了消息（清未读角标） | `{ type, read{ chat_id, user_id, msg_id, time } }` |
+| `chat_recall` | 消息撤回 | `{ type, recall{ chat_id, msg_id, sender_id, receiver_id, time } }` |
+| `chat_clear` | 清空会话（多端同步清本地记录） | `{ type, clear{ chat_id, sender_id, receiver_id, time } }` |
+| `typing` | 对方正在输入（不落库） | `{ type, typing{ chat_id, sender_id, receiver_id } }` |
 
 > **维护推送机制**：后台系统设置开启/关闭维护并保存时，向 `push_queue` 写入广播（user_id=0），Swoole 轮询推送给所有在线客户端。客户端收到后实时展示/移除维护公告（**不强制退出登录**）。
 
