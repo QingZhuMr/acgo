@@ -160,6 +160,7 @@
 |------|------|------|------|
 | post_id | int | POST 记录时 | 帖子 ID |
 | clear | int | POST 清空时 | `1`=清空全部 |
+| delete_post_id | int | POST 删除单条时 | 删除指定帖子 ID 的浏览记录 |
 
 **返回 data（GET / POST）**：`list[]`（字段同广场列表 + `browse_at`、`browse_time_text` 浏览时间）、`page`（无分页）
 
