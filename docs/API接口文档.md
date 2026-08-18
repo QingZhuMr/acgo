@@ -380,8 +380,11 @@
 
 > **安全模型**：端到端加密——消息体 `body` 为 AES-GCM 密文，`enc_key` 为 RSA-OAEP 加密后的 AES 密钥，**服务器仅存储/转发密文，无法解密**（零知识）。仅**好友（互相关注）**可聊天；服务器保留密文 **30 天**自动清理；`client_msg_id` 客户端幂等去重。接口见 `docs/聊天系统设计.md`。
 
-**上传/获取公钥**：`POST /api/chat/key`（上传 `public_key`） / `GET /api/chat/key`（获取）
-- 返回 data：`public_key`（未上传为 null）
+**上传/获取密钥**：`POST /api/chat/key`（上传 `public_key`） / `GET /api/chat/key`（获取）
+- `GET`：返回本人 `public_key`。**用户无公钥时服务器自动生成 RSA-2048 密钥对并 AES 托管私钥**（保证对方总能拿到公钥加密发送，微信/QQ 离线可达方案）
+- `GET ?claim=1`：额外返回 `private_key`（领取托管私钥后服务器清空托管，仅本人可领）
+- `POST`：上传本地生成公钥，覆盖托管
+- 返回 data：`public_key`（+ `private_key` 当 claim 成功）
 
 **批量获取用户公钥**：`POST /api/chat/keys`
 - 参数：`user_ids`（逗号分隔）
