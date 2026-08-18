@@ -37,3 +37,11 @@ Thumbs.db
 # ==================== 编辑器 / AI 工具 ====================
 /.hintrc
 /.codebuddy
+
+# ==================== 本地脚本运行产物 ====================
+# ai_bot.py 建号产生的账号数据（含手机号/密码，勿入库）
+/accounts.json
+/tools/accounts.json
+# Python 缓存
+__pycache__/
+*.pyc
