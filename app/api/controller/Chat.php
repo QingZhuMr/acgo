@@ -391,6 +391,58 @@ class Chat extends BaseController
     }
 
     /**
+     * 断线增量同步（业务接口）
+     * GET：after_id（本地最大消息 id 游标，默认 0）、limit（默认 50，最大 100）
+     *
+     * 返回 after_id 之后当前用户参与（发送或接收）的所有未过期消息，
+     * 按 id 升序；客户端用于离线期间的漏消息补偿（WS 重连后拉取）。
+     */
+    public function sync()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid     = (int) $device['user_id'];
+        $afterId = (int) $this->request->get('after_id', 0);
+        $limit   = (int) $this->request->get('limit', 50);
+        if ($limit < 1 || $limit > 100) {
+            $limit = 50;
+        }
+
+        $rows = Db::name('chat_message')
+            ->where('id', '>', $afterId)
+            ->where('expire_time', '>', time())
+            ->where(function ($q) use ($uid) {
+                $q->where('sender_id', $uid)->whereOr('receiver_id', $uid);
+            })
+            ->order('id', 'asc')
+            ->limit($limit)
+            ->select();
+
+        $list = array_map(function ($r) {
+            return [
+                'id'            => (int) $r['id'],
+                'chat_id'       => (string) $r['chat_id'],
+                'sender_id'     => (int) $r['sender_id'],
+                'receiver_id'   => (int) $r['receiver_id'],
+                'msg_type'      => (int) $r['msg_type'],
+                'body'          => (string) $r['body'],
+                'nonce'         => (string) $r['nonce'],
+                'ephemeral_pub' => (string) $r['ephemeral_pub'],
+                'client_msg_id' => (string) $r['client_msg_id'],
+                'status'        => (int) $r['status'],
+                'create_time'   => (int) $r['create_time'],
+            ];
+        }, (array) $rows);
+
+        return json(['code' => 0, 'msg' => 'ok', 'data' => [
+            'list' => $list,
+            'server_time' => time(),
+        ]]);
+    }
+
+    /**
      * 会话 ID：min(uid, peer)_max(uid, peer)
      */
     protected function chatId(int $a, int $b): string
