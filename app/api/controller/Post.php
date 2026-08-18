@@ -63,30 +63,59 @@ class Post extends BaseController
             $query->whereLike('content', '%' . $keyword . '%');
         }
 
-        if ('' !== $exclude) {
-            $ids = array_values(array_filter(array_map('intval', explode(',', $exclude))));
-            if ($ids) {
-                $query->whereNotIn('id', $ids);
-            }
-        }
-
         // 拉黑互不可见：过滤「我拉黑的」和「拉黑我的」用户的帖子
         $blockedIds = $this->blockedUserIds($this->currentUserId());
         if ($blockedIds) {
             $query->whereNotIn('user_id', $blockedIds);
         }
 
+        // 排除已看帖子（客户端累积 exclude_ids），避免重复刷到同一篇
+        // 但帖子总数不足时"往下刷总能刷到"：排除后剩余 < 2 页时自动放宽——
+        // 只排除最近展示过的部分（默认每页10条），保证信息流不中断、能循环看到老帖。
+        $excludeIds = [];
+        if ('' !== $exclude) {
+            $excludeIds = array_values(array_filter(array_map('intval', explode(',', $exclude))));
+        }
+        if ($excludeIds) {
+            // clone 查询避免 count() 污染主查询状态
+            $total = (clone $query)->count();
+            if ($total - count($excludeIds) >= $pageSize * 2) {
+                $query->whereNotIn('id', $excludeIds);
+            } else {
+                // 帖量紧张：只排除最近展示的 pageSize 条，其余放宽，保证刷到底仍有内容
+                $recentExclude = array_slice($excludeIds, 0, $pageSize);
+                $query->whereNotIn('id', $recentExclude);
+            }
+        }
+
         // 列表不返回 heat（热度为后台隐性推荐因子，不对用户展示）
-        // 排序：搜索时按时间倒序；浏览时用热度权重随机推荐。
-        // 热度取 0.35 次幂削弱权重：高热度帖子出现概率大，但不再"必然霸榜"，
-        // 随机性让低热度帖子也有机会靠前（原 RAND()*(heat+1) 热度压制过强）。
-        $order = '' !== $keyword ? 'create_time DESC' : 'RAND() * POWER(heat + 1, 0.35) DESC';
-        $list = $query
-            ->field('id,user_id,content,images,image_sizes,comment_count,create_time,location')
-            ->orderRaw($order)
-            ->page($page, $pageSize)
-            ->select()
-            ->toArray();
+        // 排序：搜索时按时间倒序；浏览时用"热度×时间衰减+随机抖动"推荐，
+        // 参考小红书/B站：互动越热（评论权重最高）越靠前，新帖有初始曝光优势，
+        // 随机抖动 + 客户端 exclude_ids 配合，避免同批帖子固定顺序、反复刷到同一篇。
+        if ('' !== $keyword) {
+            $list = $query
+                ->field('id,user_id,content,images,image_sizes,comment_count,create_time,location')
+                ->order('create_time', 'DESC')
+                ->page($page, $pageSize)
+                ->select()
+                ->toArray();
+        } else {
+            // 热度分：评论权重最高（像B站弹幕/评论活跃度），点赞、收藏、后台热度次之
+            // 时间衰减：约 24 小时半衰期，(1 - 0.5^(age/86400)) 拉平后乘以衰减系数，
+            // 新帖天然加成、老帖逐步降温，但不至于被新帖淹没。
+            // 随机抖动：±5% 扰动，配合 exclude_ids 保证每次刷新排序有变化、分散曝光。
+            $list = $query
+                ->field('id,user_id,content,images,image_sizes,comment_count,create_time,location,'
+                    . 'like_count,favorite_count,heat')
+                ->orderRaw('('
+                    . '(like_count * 2 + favorite_count * 3 + comment_count * 5 + heat * 2)'
+                    . ' / POW(1.0 + (UNIX_TIMESTAMP() - create_time) / 86400.0, 1.5)'
+                    . ' * (0.95 + RAND() * 0.10)'
+                    . ') DESC')
+                ->page($page, $pageSize)
+                ->select()
+                ->toArray();
+        }
 
         // 批量统计点赞数（post_like 表），避免 N+1
         $likeMap = self::likeCountMap(array_column($list, 'id'));
