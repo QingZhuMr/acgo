@@ -147,7 +147,23 @@
 
 > **他人主页访问规则**：`post/myPosts`、`post/favorites` 支持 `target_uid` 参数；当 `target_uid` 为他人且对方相应可见性为 `0` 时，返回空 `list` + `visible=0`（客户端据此展示"仅自己可见"占位）。
 
-### 1.7 修改密码（业务）
+### 1.7 浏览历史（业务）
+
+- **路径**：`GET /api/user/browseHistory`（获取） / `POST /api/user/browseHistory`（记录或清空）
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：跨设备浏览历史（存 `user.browse_history` JSON 字段，**最多 120 条**）。
+  - GET：返回浏览历史列表（联表帖子 + 作者昵称/头像，帖子已删除/隐藏的自动过滤）。
+  - POST `post_id`：记录一条浏览（同 post_id 去重置顶，限 120 条），返回更新后的完整列表。
+  - POST `clear=1`：清空全部浏览历史。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| post_id | int | POST 记录时 | 帖子 ID |
+| clear | int | POST 清空时 | `1`=清空全部 |
+
+**返回 data（GET / POST）**：`list[]`（字段同广场列表 + `browse_at`、`browse_time_text` 浏览时间）、`page`（无分页）
+
+### 1.8 修改密码（业务）
 
 - **路径**：`POST /api/user/changePassword`
 - **鉴权**：业务（签名 + 设备密钥）
@@ -498,6 +514,7 @@
 | 修改昵称 | `/api/user/profile` | POST | 业务 |
 | 上传头像 | `/api/user/uploadAvatar` | POST | 业务 |
 | 隐私设置 | `/api/user/privacy` | GET/POST | 业务 |
+| 浏览历史 | `/api/user/browseHistory` | GET/POST | 业务 |
 | 修改密码 | `/api/user/changePassword` | POST | 业务 |
 | 域名+WS | `/api/user/domain` | GET | 公开 |
 | 验证码 | `/api/captcha/image` | GET | 公开 |
