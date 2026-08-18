@@ -29,6 +29,7 @@
 <script type="text/html" id="userToolbar">
     <div class="layui-btn-container">
         <button class="layui-btn layui-btn-sm page-btn" lay-event="add">创建用户</button>
+        <button class="layui-btn layui-btn-sm layui-btn-normal page-btn" lay-event="batch">批量创建</button>
         <button class="layui-btn layui-btn-sm page-btn" lay-event="refresh">刷新</button>
     </div>
 </script>
@@ -132,6 +133,7 @@ layui.use(['table', 'form', 'layer'], function () {
     // 工具栏事件（新增、刷新 + Layui 原生导出/打印）
     table.on('toolbar(userTable)', function (obj) {
         if (obj.event === 'add') openForm('add');
+        if (obj.event === 'batch') openBatchForm();
         if (obj.event === 'refresh') userTable.reload();
         // 自定义导出：只导出关键列（排除头像、操作列）
         if (obj.event === 'LAY_TABLE_EXPORT' || obj.event === 'exports') {
@@ -300,6 +302,61 @@ layui.use(['table', 'form', 'layer'], function () {
     });
 
     $(document).on('click', '#btnCancel', function () { layer.closeAll(); });
+
+    // 批量创建用户（机器人/种子账号）：昵称前缀 + 数量 + 统一密码
+    // 手机号从 10000000001 起始递增，格式正确且不与现有手机号冲突
+    function openBatchForm() {
+        layer.open({
+            type: 1,
+            title: '批量创建用户',
+            area: ['460px', 'auto'],
+            content: '' +
+            '<div style="padding:25px 30px;">' +
+                '<div class="layui-form-item">' +
+                    '<label class="layui-form-label">昵称前缀</label>' +
+                    '<div class="layui-input-block">' +
+                        '<input type="text" id="batchPrefix" placeholder="如 小龙虾" autocomplete="off" class="layui-input">' +
+                        '<div class="form-tip">昵称 = 前缀 + 序号（小龙虾01、小龙虾02…）</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="layui-form-item">' +
+                    '<label class="layui-form-label">创建数量</label>' +
+                    '<div class="layui-input-block">' +
+                        '<input type="number" id="batchCount" value="10" min="1" max="50" class="layui-input">' +
+                        '<div class="form-tip">一次最多 50 个</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="layui-form-item">' +
+                    '<label class="layui-form-label">统一密码</label>' +
+                    '<div class="layui-input-block">' +
+                        '<input type="text" id="batchPassword" placeholder="留空默认 123456" autocomplete="off" class="layui-input">' +
+                        '<div class="form-tip">所有账号共用此密码，至少 6 位</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="layui-form-item" style="text-align:center;margin-top:10px;">' +
+                    '<button class="layui-btn" id="btnBatchSubmit"><i class="layui-icon layui-icon-ok"></i> 批量创建</button>' +
+                '</div>' +
+            '</div>',
+            success: function (layero) {
+                $(layero).find('#btnBatchSubmit').on('click', function () {
+                    var prefix = $.trim($('#batchPrefix').val());
+                    var count = parseInt($('#batchCount').val(), 10);
+                    var password = $.trim($('#batchPassword').val());
+                    if (!prefix) { layer.msg('请填写昵称前缀', { icon: 2 }); return; }
+                    if (isNaN(count) || count < 1 || count > 50) { layer.msg('创建数量 1-50', { icon: 2 }); return; }
+                    layer.confirm('确定批量创建 <b>' + count + '</b> 个用户（前缀：' + prefix + '）吗？', { icon: 3, title: '批量创建确认' }, function (idx) {
+                        layer.close(idx);
+                        var load = layer.load(1);
+                        $.post('/user/batchAdd', { prefix: prefix, count: count, password: password }, function (res) {
+                            layer.close(load);
+                            if (res.code === 0) { layer.msg(res.msg, { icon: 1 }); layer.closeAll(); userTable.reload(); }
+                            else { layer.msg(res.msg, { icon: 2 }); }
+                        }, 'json');
+                    });
+                });
+            }
+        });
+    }
 
     function banUser(data) {
         layer.prompt({

@@ -36,6 +36,7 @@ class AdminLog
         'user_ban'         => '封禁用户',
         'user_unban'       => '解封用户',
         'user_delete'      => '注销用户',
+        'user_batch_add'   => '批量创建用户',
 
         // 资金操作
         'recharge'         => '充值',

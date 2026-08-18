@@ -139,6 +139,81 @@ class User extends BaseController
     }
 
     /**
+     * 批量创建用户（机器人/种子账号专用）
+     * POST：prefix（昵称前缀）、count（数量 1-50）、password（统一密码，可空则默认 123456）
+     *
+     * 手机号自动生成：`1` + 随机 10 位（后台创建不受真实手机号限制）。
+     * 昵称 = prefix + 序号（如 小龙虾01、小龙虾02）。
+     */
+    public function batchAdd()
+    {
+        $prefix   = trim((string) $this->request->post('prefix', ''));
+        $count    = (int) $this->request->post('count', 0);
+        $password = (string) $this->request->post('password', '');
+
+        if ('' === $prefix) return json(['code' => 1, 'msg' => '请填写昵称前缀']);
+        if ($count < 1 || $count > 50) return json(['code' => 1, 'msg' => '批量数量 1-50']);
+        if (strlen($password) > 0 && strlen($password) < 6) return json(['code' => 1, 'msg' => '密码至少6位']);
+        if ('' === $password) $password = '123456';
+
+        // 生成手机号：从 10000000001 起始递增，保证格式正确（11 位）且不与现有手机号冲突。
+        // 冲突检测基于"当前已存在的手机号"，从起点递增找到连续空闲号段。
+        $now     = time();
+        $created = 0;
+
+        // 找出已占用的手机号集合（从 10000000001 起的区间，最多取 10 万个足够覆盖）
+        $used = [];
+        $rows = Db::name('user')
+            ->where('phone', '>=', '10000000001')
+            ->where('phone', '<=', '10000000100')
+            ->field('phone')
+            ->select()
+            ->toArray();
+        foreach ($rows as $r) {
+            $used[$r['phone']] = true;
+        }
+
+        // 起始手机号：从 10000000001 开始找第一个空闲号（不在已用集合中）
+        $base = 10000000001;
+        while (isset($used[(string) $base])) {
+            $base++;
+        }
+
+        for ($i = 1; $i <= $count; $i++) {
+            $nickname = $prefix . str_pad((string) $i, 2, '0', STR_PAD_LEFT);
+            // 跳过已被占用的号（并发/其他渠道注册）
+            while (isset($used[(string) $base])) {
+                $base++;
+            }
+            $phone = (string) $base;
+            $used[$phone] = true;
+            $base++;
+
+            $userId = Db::name('user')->insertGetId([
+                'nickname'      => $nickname,
+                'password'      => Password::encrypt($password),
+                'phone'         => $phone,
+                'avatar'        => self::DEFAULT_AVATAR,
+                'status'        => 1,
+                'register_time' => $now,
+                'update_time'   => $now,
+            ]);
+            // 同步创建钱包记录
+            Db::name('wallet')->insert([
+                'uid'         => $userId,
+                'status'      => 1,
+                'create_time' => $now,
+                'update_time' => $now,
+            ]);
+            $created++;
+        }
+
+        $this->log('user_batch_add', '批量创建用户 prefix=' . $prefix . ' 数量=' . $created);
+
+        return json(['code' => $created > 0 ? 0 : 1, 'msg' => $created > 0 ? "成功创建 {$created} 个用户" : '创建失败']);
+    }
+
+    /**
      * 编辑用户资料（不含密码，不含头像，头像固定为默认值）
      */
     public function edit()
