@@ -560,21 +560,86 @@ def _find_post(api, post_id):
 
 # ---------- DeepSeek AI 辅助 ----------
 
-_DS_SYS_PUBLISH = '你是动漫社区用户，发条自然的帖子（30-150字），直接输出正文。'
+# 发帖题材池：脚本侧维护，抽过即移除，保证同一批不重复（这才是"不重复类型"的有效实现）
+_PUBLISH_TOPICS = [
+    '某部新番追番体验，有褒有贬的真实吐槽',
+    '数码产品（手机/耳机/显卡等）踩坑或真香经历',
+    '电脑装机/配置求助，带预算和用途',
+    '某个历史人物或事件的另类看法',
+    '日常小事碎碎念，带具体场景细节',
+    '某款游戏上分/吃鸡/翻车经历',
+    '动漫名场面的重看感受',
+    '职场/学校里的真实经历吐槽',
+    '某首歌/某部番的安利，带具体理由',
+    '对某个争议话题抛出个人观点，带例子',
+]
 
-_DS_SYS_COMMENT = '你是动漫社区用户，针对帖子内容写条自然评论（5-60字），直接输出。'
+# 发帖 system：few-shot 高仿真示例 + 反 AI 作文腔规则
+_DS_SYS_PUBLISH = (
+    '你是贴吧老哥，文风口语化、随意、有真实生活痕迹。'
+    '下面是真人帖子的写法示例，模仿这个味：\n'
+    '例1：破防了兄弟们，新买的耳机用了三天右耳就没声了，问客服说让我寄回去检测，来回运费还得自己出，真服了，这牌子的品控就这？\n'
+    '例2：看完XX这部番了，前面吹得天花乱坠，结果后面节奏稀烂，oped倒是真好听，属于那种食之无味弃之可惜的，你们觉得呢\n'
+    '例3：今天楼下那家兰州拉面居然涨价了，从12涨到14，老板说牛肉贵了，我寻思你碗里那几片肉也没多啊，通货膨胀真实伤害\n'
+    '规则：30-150字，只输出正文；口语碎碎念、带具体细节，别写成作文/总结/新闻稿；'
+    '禁止"首先/其次/总之/不得不说/值得深思/YYDS/家人们谁懂啊"这类腔调，禁感叹号堆砌，禁emoji，禁广告。'
+)
+
+
+# 评论 system：few-shot + 反 AI
+_DS_SYS_COMMENT = (
+    '你是贴吧老哥，回帖要像真人搭话，口语简短有态度。\n'
+    '例1：笑死，说到我心坎里了\n'
+    '例2：我之前也遇到过，不过我是直接退了换别家\n'
+    '例3：有道理，不过我感觉还得看后面剧情怎么圆\n'
+    '规则：5-60字，只输出评论；别喊口号别总结，别用"确实如此/很有道理"这种AI味套话，禁感叹号堆砌，禁emoji。'
+)
+
 
 _DS_SYS_LIKE = '值得点赞吗？只回答"是"或"否"。'
 
+# 评论观点池：给 _ai_comment_content 随机注入一个立场，避免评论千篇一律
+_COMMENT_STANCES = [
+    '赞同楼主，顺着补充自己的经历',
+    '半赞同半吐槽，提出不同角度',
+    '玩梗接话，轻松向',
+    '反问/质疑一个细节，带点好奇',
+    '分享一个类似遭遇，表示感同身受',
+]
 
-def _ai_publish_content(ai, genre):
-    return ai.chat(_DS_SYS_PUBLISH, f'动漫主题/类型：{genre}')
+
+def _ai_publish_content(ai, genre=''):
+    """生成帖子。genre 为兜底主题；题材池抽过的会移除，保证同批不重复。"""
+    global _PUBLISH_TOPICS
+    if _PUBLISH_TOPICS:
+        topic = random.choice(_PUBLISH_TOPICS)
+        _PUBLISH_TOPICS.remove(topic)
+    else:
+        # 池抽空了就重置，继续随机（批次大时允许重复轮换）
+        _PUBLISH_TOPICS = [t for t in (
+            '某部新番追番体验，有褒有贬的真实吐槽',
+            '数码产品（手机/耳机/显卡等）踩坑或真香经历',
+            '电脑装机/配置求助，带预算和用途',
+            '某个历史人物或事件的另类看法',
+            '日常小事碎碎念，带具体场景细节',
+            '某款游戏上分/吃鸡/翻车经历',
+            '动漫名场面的重看感受',
+            '职场/学校里的真实经历吐槽',
+            '某首歌/某部番的安利，带具体理由',
+            '对某个争议话题抛出个人观点，带例子',
+        )]
+        topic = random.choice(_PUBLISH_TOPICS)
+        _PUBLISH_TOPICS.remove(topic)
+    # 用户指定 genre 时优先用，否则用池里抽的题材
+    theme = genre if genre and genre != '二次元动漫' else topic
+    return ai.chat(_DS_SYS_PUBLISH, f'今天想发的内容：{theme}。用贴吧老哥的语气写。')
 
 
 def _ai_comment_content(ai, post_content):
     if not post_content or not post_content.strip():
         raise RuntimeError('帖子内容为空，无法生成评论')
-    return ai.chat(_DS_SYS_COMMENT, f'帖子内容：{post_content}')
+    stance = random.choice(_COMMENT_STANCES)
+    return ai.chat(_DS_SYS_COMMENT, f'帖子内容：{post_content}\n你的态度：{stance}。用贴吧老哥的语气回。')
 
 
 def _ai_should_like(ai, post_content):
