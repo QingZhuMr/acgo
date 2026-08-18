@@ -736,6 +736,18 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | province | string | 否 | 指定省份（如 `广东`），不传随机省份 |
 
 **返回 data**：`ip`、`location`
+
+### 12.11 帖子列表
+
+- **路径**：`GET /api/ai/postList?page=1&page_size=20`
+- **功能**：返回正常（status=1）帖子列表，按 id 倒序；供 `comment` 脚本不指定 `post_id` 时随机选帖评论。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| page | int | 否 | 页码，默认 1 |
+| page_size | int | 否 | 每页 1-50，默认 20 |
+
+**返回 data**：`list[] { id, content(截断200字), comment_count, create_time }`
 - **折叠聚合**（未读）：同目标多条未读合并为一条——键 `type + post_id + comment_id`（type=3 关注全部合并）：
   - `from_nickname` 为「昵称1、昵称2等N人」（最多前 2 个昵称 + 等N人）
   - `id_list`：聚合内通知 id 数组（点击标已读/删除用）；`from_uids`：触发者 uid 数组；`count`：聚合条数
