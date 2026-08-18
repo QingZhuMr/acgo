@@ -201,11 +201,15 @@ layui.use(['table', 'form', 'layer', 'upload'], function () {
                     upload.render({
                         elem: '#btnUploadPkg',
                         url: '/update/upload',
-                        auto: true,
+                        // auto:false —— 完全手动控制上传时机。
+                        // 不能 auto:true：auto 会在 choose 校验前就自动上传（platform 还没填/取不到），
+                        // choose 里的 return 拦不住自动上传 → 后端收空 platform 报"没有选择平台"。
+                        auto: false,
                         accept: 'file',
                         choose: function (obj) {
-                            obj.preview(function (index, file, result) {
-                                // 上传前校验平台/版本已填写
+                            // 选择文件后统一走 preview 回调校验，校验通过才手动 upload
+                            obj.preview(function (index, file) {
+                                // 上传前校验平台/版本已填写（失败则不调用 upload，即不发请求）
                                 var platform = $('select[name="platform"]').val();
                                 var version = $.trim($('input[name="version"]').val());
                                 if (!platform) { layer.msg('请先选择平台', { icon: 2 }); return; }
