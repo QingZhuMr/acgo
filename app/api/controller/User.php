@@ -549,6 +549,163 @@ class User extends BaseController
     }
 
     /**
+     * 关注 / 取消关注（业务接口：签名 + 设备密钥）
+     * POST：target_uid（必填）—— 已关注则取消，未关注则关注（切换）
+     */
+    public function follow()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $targetUid = (int) $this->request->post('target_uid', 0);
+        if ($targetUid <= 0 || $targetUid === $uid) {
+            return json(['code' => 1, 'msg' => '不能关注自己']);
+        }
+        $target = Db::name('user')->where('id', $targetUid)->find();
+        if (!$target) {
+            return json(['code' => 1, 'msg' => '用户不存在']);
+        }
+
+        $now     = time();
+        $exists  = Db::name('user_follow')
+            ->where('follower_id', $uid)
+            ->where('following_id', $targetUid)
+            ->find();
+
+        if ($exists) {
+            Db::name('user_follow')->where('id', $exists['id'])->delete();
+            // 取关后检查是否还是好友
+            $mutual = Db::name('user_follow')
+                ->where('follower_id', $targetUid)
+                ->where('following_id', $uid)
+                ->find();
+            return json([
+                'code' => 0, 'msg' => '已取消关注', 'data' => [
+                    'is_following' => false,
+                    'is_mutual'    => (bool) $mutual,
+                ],
+            ]);
+        }
+
+        Db::name('user_follow')->insert([
+            'follower_id'  => $uid,
+            'following_id' => $targetUid,
+            'create_time'  => $now,
+        ]);
+        $mutual = Db::name('user_follow')
+            ->where('follower_id', $targetUid)
+            ->where('following_id', $uid)
+            ->find();
+        return json([
+            'code' => 0, 'msg' => '关注成功', 'data' => [
+                'is_following' => true,
+                'is_mutual'    => (bool) $mutual,
+            ],
+        ]);
+    }
+
+    /**
+     * 好友列表（互相关注，业务接口）
+     * GET：page、page_size（默认 10，最大 50）
+     */
+    public function friends()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        $page     = max(1, (int) $this->request->get('page', 1));
+        $pageSize = min(50, max(1, (int) $this->request->get('page_size', 10)));
+
+        // 好友 = 互相关注：我关注了他 且 他关注了我
+        $myFollowing = Db::name('user_follow')
+            ->where('follower_id', $uid)
+            ->field('following_id')
+            ->select()
+            ->toArray();
+        $followingIds = array_column($myFollowing, 'following_id');
+        if (!$followingIds) {
+            return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => [], 'page' => $page]]);
+        }
+
+        // 反向查找：这些 following 里也关注了我的人
+        $mutualRows = Db::name('user_follow')
+            ->where('following_id', $uid)
+            ->whereIn('follower_id', $followingIds)
+            ->field('follower_id,create_time')
+            ->order('create_time', 'desc')
+            ->page($page, $pageSize)
+            ->select()
+            ->toArray();
+
+        $total = Db::name('user_follow')
+            ->where('following_id', $uid)
+            ->whereIn('follower_id', $followingIds)
+            ->count();
+
+        $ids = array_column($mutualRows, 'follower_id');
+        $list = [];
+        if ($ids) {
+            $userMap = UserInfoCache::batch($ids);
+            foreach ($mutualRows as $r) {
+                $fid = (int) $r['follower_id'];
+                $u   = $userMap[$fid] ?? ['nickname' => '', 'avatar' => ''];
+                $list[] = [
+                    'user_id'     => $fid,
+                    'nickname'    => (string) ($u['nickname'] ?? ''),
+                    'avatar'      => (string) ($u['avatar'] ?? ''),
+                    'follow_time' => (int) $r['create_time'],
+                ];
+            }
+        }
+
+        return json([
+            'code' => 0, 'msg' => 'ok', 'data' => [
+                'list'  => $list,
+                'page'  => $page,
+                'total' => $total,
+                'has_more' => $page * $pageSize < $total,
+            ],
+        ]);
+    }
+
+    /**
+     * 关注状态（业务接口）
+     * GET：target_uid —— 返回 is_following / is_mutual（我是否关注他 / 是否互相关注）
+     */
+    public function followStatus()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+        $targetUid = (int) $this->request->get('target_uid', 0);
+        if ($targetUid <= 0) {
+            return json(['code' => 1, 'msg' => '参数错误']);
+        }
+        $isFollowing = (bool) Db::name('user_follow')
+            ->where('follower_id', $uid)
+            ->where('following_id', $targetUid)
+            ->find();
+        $isMutual = (bool) Db::name('user_follow')
+            ->where('follower_id', $targetUid)
+            ->where('following_id', $uid)
+            ->find();
+        return json([
+            'code' => 0, 'msg' => 'ok', 'data' => [
+                'is_following' => $isFollowing,
+                'is_mutual'    => $isFollowing && $isMutual,
+            ],
+        ]);
+    }
+
+    /**
      * 上传头像（业务接口：签名 + 设备密钥）
      * multipart/form-data：字段 avatar
      *
