@@ -130,7 +130,24 @@
 
 **返回 data**：`avatar`（相对路径 `/static/avatar/xxx`）
 
-### 1.6 修改密码（业务）
+### 1.6 隐私设置（业务）
+
+- **路径**：`GET /api/user/privacy`（获取） / `POST /api/user/privacy`（保存）
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：主页「动态」「收藏」对他人的可见性（为访问他人主页功能做准备）。
+  - GET：返回当前用户隐私配置。
+  - POST：保存隐私配置，可只传其一（未传的保持原值）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| privacy_posts | int | POST 可选 | 动态可见性：`1`公开 `0`仅自己 |
+| privacy_favorites | int | POST 可选 | 收藏可见性：`1`公开 `0`仅自己 |
+
+**返回 data（GET / POST）**：`privacy_posts`、`privacy_favorites`（`1`公开 `0`仅自己）
+
+> **他人主页访问规则**：`post/myPosts`、`post/favorites` 支持 `target_uid` 参数；当 `target_uid` 为他人且对方相应可见性为 `0` 时，返回空 `list` + `visible=0`（客户端据此展示"仅自己可见"占位）。
+
+### 1.7 修改密码（业务）
 
 - **路径**：`POST /api/user/changePassword`
 - **鉴权**：业务（签名 + 设备密钥）
@@ -141,7 +158,7 @@
 | old_password | string | 是 | 原密码 |
 | new_password | string | 是 | 新密码，≥6 位 |
 
-### 1.7 获取域名 + WebSocket 参数（公开，校时入口）
+### 1.8 获取域名 + WebSocket 参数（公开，校时入口）
 
 - **路径**：`GET /api/user/domain`
 - **鉴权**：公开（仅签名，时间戳放宽 ±600s，为校时入口）
@@ -284,27 +301,33 @@
 
 - **路径**：`GET /api/post/favorites`
 - **鉴权**：业务（签名 + 设备密钥）
-- **功能**：返回当前用户收藏的帖子，按收藏时间倒序，只取正常状态帖子。
+- **功能**：返回指定用户收藏的帖子，按收藏时间倒序，只取正常状态帖子。
+  - `target_uid` 为空或等于当前 uid：返回**自己**的收藏（个人中心「收藏」tab）。
+  - `target_uid` 为**他人**：访问他人主页场景，按对方 `privacy_favorites` 校验——为 `0`（仅自己）时返回空 `list` + `visible=0`。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | page | int | 否 | 页码，默认 1 |
 | page_size | int | 否 | 每页条数，默认 10，最大 50 |
+| target_uid | int | 否 | 目标用户 ID（访问他人主页时传） |
 
-**返回 data**：`list[]`（字段同广场列表：`id, user_id, nickname, avatar, content, images[], comment_count, like_count, is_liked, is_favorited(恒为 true), favorite_count, create_time, create_time_text, location`）、`page`
+**返回 data**：`list[]`（字段同广场列表：`id, user_id, nickname, avatar, content, images[], comment_count, like_count, is_liked, is_favorited(恒为 true), favorite_count, create_time, create_time_text, location`）、`page`、`visible(1可见 0对方设为仅自己可见)`
 
 ### 3.9 我的动态列表（业务）
 
 - **路径**：`GET /api/post/myPosts`
 - **鉴权**：业务（签名 + 设备密钥）
-- **功能**：返回当前用户发布的帖子，按发布时间倒序，只取正常状态帖子（用于个人中心「动态」tab）。
+- **功能**：返回指定用户发布的帖子，按发布时间倒序，只取正常状态帖子（个人中心「动态」tab / 他人主页「动态」）。
+  - `target_uid` 为空或等于当前 uid：返回**自己**的动态。
+  - `target_uid` 为**他人**：访问他人主页场景，按对方 `privacy_posts` 校验——为 `0`（仅自己）时返回空 `list` + `visible=0`。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | page | int | 否 | 页码，默认 1 |
 | page_size | int | 否 | 每页条数，默认 10，最大 50 |
+| target_uid | int | 否 | 目标用户 ID（访问他人主页时传） |
 
-**返回 data**：`list[]`（字段同广场列表：`id, user_id, nickname, avatar, content, images[], comment_count, like_count, is_liked, is_favorited(恒为 false——自己的帖子不能收藏), favorite_count, create_time, create_time_text, location`）、`page`
+**返回 data**：`list[]`（字段同广场列表：`id, user_id, nickname, avatar, content, images[], comment_count, like_count, is_liked, is_favorited(恒为 false——自己的帖子不能收藏), favorite_count, create_time, create_time_text, location`）、`page`、`visible(1可见 0对方设为仅自己可见)`
 
 ### 3.10 评论点赞 / 取消（切换，业务）
 
@@ -471,6 +494,7 @@
 | 账号状态 | `/api/user/status` | GET | 业务 |
 | 修改昵称 | `/api/user/profile` | POST | 业务 |
 | 上传头像 | `/api/user/uploadAvatar` | POST | 业务 |
+| 隐私设置 | `/api/user/privacy` | GET/POST | 业务 |
 | 修改密码 | `/api/user/changePassword` | POST | 业务 |
 | 域名+WS | `/api/user/domain` | GET | 公开 |
 | 验证码 | `/api/captcha/image` | GET | 公开 |

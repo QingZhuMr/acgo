@@ -884,15 +884,29 @@ class Post extends BaseController
             return json(['code' => 401, 'msg' => '设备未授权']);
         }
         $uid = (int) $device['user_id'];
+        $targetUid = (int) $this->request->param('target_uid', 0);
 
         $page     = max(1, (int) $this->request->param('page', 1));
         $pageSize = min(50, max(1, (int) $this->request->param('page_size', 10)));
+
+        // 访问他人主页：校验对方收藏可见性（仅自己可见则拒绝展示）
+        if ($targetUid > 0 && $targetUid !== $uid) {
+            $privacy = (int) (Db::name('user')->where('id', $targetUid)->value('privacy_favorites') ?? 1);
+            if (0 === $privacy) {
+                return json(['code' => 0, 'msg' => 'ok', 'data' => [
+                    'list'    => [],
+                    'page'    => $page,
+                    'visible' => 0,
+                ]]);
+            }
+        }
+        $viewUid = $targetUid > 0 ? $targetUid : $uid;
 
         // 收藏表 join 帖子表：按收藏时间倒序，只取正常状态帖子
         $list = Db::name('post_favorite')
             ->alias('f')
             ->join('post p', 'p.id = f.post_id')
-            ->where('f.user_id', $uid)
+            ->where('f.user_id', $viewUid)
             ->where('p.status', 1)
             ->field('p.id,p.user_id,p.content,p.images,p.comment_count,p.create_time,p.location,p.favorite_count')
             ->order('f.create_time', 'desc')
@@ -927,15 +941,19 @@ class Post extends BaseController
         }
         unset($item);
 
-        return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $list, 'page' => $page]]);
+        return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $list, 'page' => $page, 'visible' => 1]]);
     }
 
     /**
      * 我的动态列表（业务接口）
      *
-     * 返回当前用户发布的帖子，按发布时间倒序，只取正常状态帖子。
-     * 参数：page / page_size
-     * 返回：list（字段同广场列表，is_favorited 恒 false——自己的帖子不能收藏）、page
+     * 返回用户发布的帖子，按发布时间倒序，只取正常状态帖子。
+     * 参数：page / page_size / target_uid（可选，访问他人主页时传目标用户 ID）
+     * 返回：list（字段同广场列表，is_favorited 恒 false——自己的帖子不能收藏）、
+     *       page、visible（隐私可见性：1可见 0被对方设为仅自己可见）
+     *
+     * 隐私规则：target_uid 为空或等于当前 uid 时（看自己的）直接返回；
+     * 看他人时校验对方 privacy_posts，为 0（仅自己）则返回空列表 + visible=false。
      */
     public function myPosts()
     {
@@ -944,12 +962,26 @@ class Post extends BaseController
             return json(['code' => 401, 'msg' => '设备未授权']);
         }
         $uid = (int) $device['user_id'];
+        $targetUid = (int) $this->request->param('target_uid', 0);
 
         $page     = max(1, (int) $this->request->param('page', 1));
         $pageSize = min(50, max(1, (int) $this->request->param('page_size', 10)));
 
+        // 访问他人主页：校验对方动态可见性（仅自己可见则拒绝展示）
+        $viewUid = $targetUid > 0 ? $targetUid : $uid;
+        if ($targetUid > 0 && $targetUid !== $uid) {
+            $privacy = (int) (Db::name('user')->where('id', $targetUid)->value('privacy_posts') ?? 1);
+            if (0 === $privacy) {
+                return json(['code' => 0, 'msg' => 'ok', 'data' => [
+                    'list'    => [],
+                    'page'    => $page,
+                    'visible' => 0,
+                ]]);
+            }
+        }
+
         $list = Db::name('post')
-            ->where('user_id', $uid)
+            ->where('user_id', $viewUid)
             ->where('status', 1)
             ->field('id,user_id,content,images,comment_count,favorite_count,create_time,location')
             ->order('create_time', 'desc')
@@ -984,7 +1016,7 @@ class Post extends BaseController
         }
         unset($item);
 
-        return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $list, 'page' => $page]]);
+        return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $list, 'page' => $page, 'visible' => 1]]);
     }
 
     /**

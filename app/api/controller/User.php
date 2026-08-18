@@ -333,6 +333,67 @@ class User extends BaseController
     }
 
     /**
+     * 隐私设置（业务接口：签名 + 设备密钥）
+     *
+     * GET：获取当前用户隐私配置
+     *   - 返回 data：{ privacy_posts: 1|0, privacy_favorites: 1|0 }（1公开 0仅自己）
+     *
+     * POST：保存隐私配置
+     *   - 参数：privacy_posts / privacy_favorites（可只传其一，省略的保持原值）
+     *   - 返回 data：保存后的完整配置
+     */
+    public function privacy()
+    {
+        $device = $this->request->deviceInfo;
+        if (!$device) {
+            return json(['code' => 401, 'msg' => '设备未授权']);
+        }
+        $uid = (int) $device['user_id'];
+
+        // 读取当前配置（兼容旧库字段不存在时兜底为公开）
+        $row = Db::name('user')->where('id', $uid)->field('privacy_posts,privacy_favorites')->find();
+        $cur = [
+            'privacy_posts'     => (int) ($row['privacy_posts'] ?? 1),
+            'privacy_favorites' => (int) ($row['privacy_favorites'] ?? 1),
+        ];
+
+        $isGet = 'GET' === strtoupper($this->request->method());
+        if ($isGet) {
+            return json(['code' => 0, 'msg' => 'ok', 'data' => $cur]);
+        }
+
+        // POST：仅接受 0/1，未传的保持原值
+        $postsVal = $this->request->post('privacy_posts', null);
+        $favVal   = $this->request->post('privacy_favorites', null);
+
+        if ($postsVal !== null && !in_array((int) $postsVal, [0, 1], true)) {
+            return json(['code' => 1, 'msg' => '动态可见性参数错误']);
+        }
+        if ($favVal !== null && !in_array((int) $favVal, [0, 1], true)) {
+            return json(['code' => 1, 'msg' => '收藏可见性参数错误']);
+        }
+
+        $update = [];
+        if ($postsVal !== null) {
+            $update['privacy_posts'] = (int) $postsVal;
+        }
+        if ($favVal !== null) {
+            $update['privacy_favorites'] = (int) $favVal;
+        }
+        if ($update) {
+            $update['update_time'] = time();
+            Db::name('user')->where('id', $uid)->update($update);
+        }
+
+        // 返回保存后的完整配置
+        $final = [
+            'privacy_posts'     => $postsVal !== null ? (int) $postsVal : $cur['privacy_posts'],
+            'privacy_favorites' => $favVal !== null ? (int) $favVal : $cur['privacy_favorites'],
+        ];
+        return json(['code' => 0, 'msg' => '保存成功', 'data' => $final]);
+    }
+
+    /**
      * 上传头像（业务接口：签名 + 设备密钥）
      * multipart/form-data：字段 avatar
      *

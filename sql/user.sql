@@ -24,6 +24,8 @@ CREATE TABLE `user` (
   `last_login_ip`  VARCHAR(45)  NOT NULL DEFAULT '' COMMENT '最后登录IP',
   `register_time`  INT          NOT NULL DEFAULT 0  COMMENT '注册时间',
   `update_time`    INT          NOT NULL DEFAULT 0  COMMENT '更新时间',
+  `privacy_posts`  TINYINT(1)   NOT NULL DEFAULT 1  COMMENT '动态可见性：1公开 0仅自己',
+  `privacy_favorites` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '收藏可见性：1公开 0仅自己',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uniq_phone` (`phone`),
   KEY `idx_status` (`status`)
