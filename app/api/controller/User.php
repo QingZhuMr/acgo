@@ -592,12 +592,17 @@ class User extends BaseController
         }
 
         // 拉黑互斥：任一方向已拉黑则禁止关注（先判断关注分支，取关不受限）
+        // 注意：whereOr 数组元素必须是 [field,op,value] 三元组，不能塞多字段，
+        // 否则 ThinkPHP 把多余字段当别名 → SQL 语法错误 → 关注接口 500。
         $blocked = Db::name('user_block')
             ->where(function ($q) use ($uid, $targetUid) {
-                $q->whereOr([
-                    ['blocker_id', '=', $uid, 'blocked_id', '=', $targetUid],
-                    ['blocker_id', '=', $targetUid, 'blocked_id', '=', $uid],
-                ]);
+                $q->where(function ($q1) use ($uid, $targetUid) {
+                    $q1->where('blocker_id', $uid)
+                        ->where('blocked_id', $targetUid);
+                })->whereOr(function ($q2) use ($uid, $targetUid) {
+                    $q2->where('blocker_id', $targetUid)
+                        ->where('blocked_id', $uid);
+                });
             })
             ->count();
         if ($blocked > 0) {
