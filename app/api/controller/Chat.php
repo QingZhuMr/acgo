@@ -166,6 +166,7 @@ class Chat extends BaseController
                     'code' => 0, 'msg' => 'ok', 'data' => [
                         'id' => (int) $exists['id'],
                         'create_time' => (int) $exists['create_time'],
+                        'server_time' => time(),
                         'duplicate' => true,
                     ],
                 ]);
@@ -212,6 +213,7 @@ class Chat extends BaseController
             'code' => 0, 'msg' => 'ok', 'data' => [
                 'id' => (int) $msgId,
                 'create_time' => $now,
+                'server_time' => $now,
             ],
         ]);
     }
@@ -270,7 +272,10 @@ class Chat extends BaseController
             ];
         }
 
-        return json(['code' => 0, 'msg' => 'ok', 'data' => ['list' => $list]]);
+        return json(['code' => 0, 'msg' => 'ok', 'data' => [
+            'list' => $list,
+            'server_time' => time(),
+        ]]);
     }
 
     /**
