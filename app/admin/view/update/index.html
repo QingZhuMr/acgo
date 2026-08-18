@@ -13,8 +13,11 @@
                 <option value="">全部平台</option>
                 <option value="win">Windows</option>
                 <option value="mac">macOS</option>
-                <option value="ios">iOS</option>
+                <option value="linux">Linux</option>
                 <option value="android">Android</option>
+                <option value="ios">iOS</option>
+                <option value="ipados">iPadOS</option>
+                <option value="harmony">鸿蒙OS</option>
             </select>
         </div>
         <div class="layui-inline">
@@ -81,7 +84,7 @@ layui.use(['table', 'form', 'layer'], function () {
         cols: [[
             { type: 'numbers', fixed: 'left' },
             { field: 'platform', title: '平台', width: 100, templet: function (d) {
-                var map = { win: 'Windows', mac: 'macOS', ios: 'iOS', android: 'Android' };
+                var map = { win: 'Windows', mac: 'macOS', linux: 'Linux', android: 'Android', ios: 'iOS', ipados: 'iPadOS', harmony: '鸿蒙OS' };
                 return map[d.platform] || d.platform;
             } },
             { field: 'version', title: '版本号', width: 110 },
@@ -128,7 +131,7 @@ layui.use(['table', 'form', 'layer'], function () {
             }
             btns += '<button type="button" class="op-act-btn danger" data-ev="del"><i class="fas fa-trash"></i> 删除</button>';
 
-            var platformName = { win: 'Windows', mac: 'macOS', ios: 'iOS', android: 'Android' }[data.platform] || data.platform;
+            var platformName = { win: 'Windows', mac: 'macOS', linux: 'Linux', android: 'Android', ios: 'iOS', ipados: 'iPadOS', harmony: '鸿蒙OS' }[data.platform] || data.platform;
             var html = '<div class="op-layer-target"><i class="fas fa-cloud-download-alt"></i> 操作对象：<b>' + platformName + ' ' + data.version + '</b></div>' +
                        '<div class="op-layer-body">' + btns + '</div>';
             var opsLayer = layer.open({
@@ -208,8 +211,11 @@ layui.use(['table', 'form', 'layer'], function () {
                         '<option value="">请选择平台</option>' +
                         '<option value="win">Windows（上传 exe / zip 安装包）</option>' +
                         '<option value="mac">macOS（上传 dmg / pkg 安装包）</option>' +
-                        '<option value="ios">iOS（推送 App Store 地址）</option>' +
+                        '<option value="linux">Linux（上传 tar.gz / AppImage 安装包）</option>' +
                         '<option value="android">Android（上传 apk 安装包）</option>' +
+                        '<option value="ios">iOS（推送 App Store 地址）</option>' +
+                        '<option value="ipados">iPadOS（推送 App Store 地址）</option>' +
+                        '<option value="harmony">鸿蒙OS（上传 hsp / apk 安装包）</option>' +
                     '</select>' +
                 '</div>' +
             '</div>' +
@@ -229,7 +235,7 @@ layui.use(['table', 'form', 'layer'], function () {
                 '<label class="layui-form-label">下载地址</label>' +
                 '<div class="layui-input-block">' +
                     '<input type="text" name="download_url" placeholder="https://..." lay-verify="required" autocomplete="off" class="layui-input">' +
-                    '<div class="form-tip">Windows：exe 或 zip 下载链接；macOS：dmg 或 pkg 下载链接；Android：apk；iOS：App Store 链接</div>' +
+                    '<div class="form-tip">Windows：exe / zip；macOS：dmg / pkg；Linux：tar.gz / AppImage；Android：apk；iPadOS：App Store；鸿蒙OS：hsp / apk；iOS：App Store</div>' +
                 '</div>' +
             '</div>' +
             '<div class="layui-form-item">' +

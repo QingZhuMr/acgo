@@ -228,11 +228,16 @@ class Update extends BaseController
     }
 
     /**
+     * 支持的目标平台（更新按平台独立推送，非多端同步）
+     */
+    public const PLATFORMS = ['win', 'mac', 'linux', 'android', 'ios', 'ipados', 'harmony'];
+
+    /**
      * 公共字段校验
      */
     private function validateFields(array $data)
     {
-        if (empty($data['platform']) || !in_array($data['platform'], ['win', 'mac', 'ios', 'android'], true)) {
+        if (empty($data['platform']) || !in_array($data['platform'], self::PLATFORMS, true)) {
             return $this->jsonOut(1, '请选择有效的平台');
         }
         if (empty($data['version'])) {

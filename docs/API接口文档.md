@@ -542,7 +542,7 @@
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| platform | string | 否 | `win/mac/ios/android`，默认 win |
+| platform | string | 否 | `win/mac/linux/android/ios/ipados/harmony`，默认 win |
 | client_version | string | 否 | 客户端当前版本号，如 `0.1.0` |
 
 **返回 data（有更新时）**：`version`、`title`、`message`、`platform`、`download_url`、`mandatory`
