@@ -710,6 +710,17 @@ class User extends BaseController
             }
         }
 
+        // 联系人列表按昵称拼音排序（GBK 编码逐字节即拼音序），微信/QQ 风格
+        usort($list, function ($a, $b) {
+            $na = $a['nickname'] === '' ? "\xFF" : iconv('UTF-8', 'GBK//IGNORE', $a['nickname']);
+            $nb = $b['nickname'] === '' ? "\xFF" : iconv('UTF-8', 'GBK//IGNORE', $b['nickname']);
+            return strcmp((string) $na, (string) $nb);
+        });
+        foreach ($list as &$item) {
+            $item['initial'] = $this->pinyinInitial($item['nickname']);
+        }
+        unset($item);
+
         return json([
             'code' => 0, 'msg' => 'ok', 'data' => [
                 'list'  => $list,
@@ -718,6 +729,52 @@ class User extends BaseController
                 'has_more' => $page * $pageSize < $total,
             ],
         ]);
+    }
+
+    /**
+     * 昵称首个字符的拼音首字母（GB2312 区间映射），用于联系人按字母分组
+     * 英文/数字开头取大写字母，其余（符号/无法识别）归 '#'
+     */
+    private function pinyinInitial(string $name): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return '#';
+        }
+        preg_match('/./us', $name, $m);
+        $char = $m[0] ?? '';
+        if ($char === '') {
+            return '#';
+        }
+        $code = ord($char[0]);
+        if ($code < 128) {
+            // 英文/数字/符号：字母大写，其余归 #
+            if (($code >= 65 && $code <= 90) || ($code >= 97 && $code <= 122)) {
+                return strtoupper($char);
+            }
+            return '#';
+        }
+        $gb = @iconv('UTF-8', 'GBK', $char);
+        if ($gb === false || strlen($gb) < 2) {
+            return '#';
+        }
+        $o = ord($gb[0]) * 256 + ord($gb[1]);
+        $map = [
+            'A' => [0xB0A1, 0xB0C4], 'B' => [0xB0C5, 0xB2C0], 'C' => [0xB2C1, 0xB4ED],
+            'D' => [0xB4EE, 0xB6E9], 'E' => [0xB6EA, 0xB7A1], 'F' => [0xB7A2, 0xB8C0],
+            'G' => [0xB8C1, 0xB9FD], 'H' => [0xB9FE, 0xBBF6], 'J' => [0xBBF7, 0xBFA5],
+            'K' => [0xBFA6, 0xC0AB], 'L' => [0xC0AC, 0xC2E7], 'M' => [0xC2E8, 0xC4C2],
+            'N' => [0xC4C3, 0xC5B5], 'O' => [0xC5B6, 0xC5BD], 'P' => [0xC5BE, 0xC6D9],
+            'Q' => [0xC6DA, 0xC8BA], 'R' => [0xC8BB, 0xC8F5], 'S' => [0xC8F6, 0xCBF9],
+            'T' => [0xCBFA, 0xCDD9], 'W' => [0xCDDA, 0xCEF3], 'X' => [0xCEF4, 0xD1B8],
+            'Y' => [0xD1B9, 0xD4D0], 'Z' => [0xD4D1, 0xD7F9],
+        ];
+        foreach ($map as $letter => $range) {
+            if ($o >= $range[0] && $o <= $range[1]) {
+                return $letter;
+            }
+        }
+        return '#';
     }
 
     /**

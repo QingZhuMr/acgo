@@ -173,8 +173,8 @@
 
 **好友列表**：`GET /api/user/friends`
 - 参数：`page`、`page_size`（默认 10，最大 50）
-- 功能：**好友 = 互相关注**（我关注了他 且 他关注了我），按成为好友时间倒序
-- 返回 data：`list[] { user_id, nickname, avatar, follow_time }`、`page`、`total`、`has_more`
+- 功能：**好友 = 互相关注**（我关注了他 且 他关注了我）；**联系人排序**：按昵称拼音排序（GBK 编码，英文排中文前），并返回 `initial`（昵称首字拼音首字母 A-Z，无法识别为 `#`），供客户端按首字母分组（微信/QQ 联系人风格）
+- 返回 data：`list[] { user_id, nickname, avatar, follow_time, online, initial }`、`page`、`total`、`has_more`
 
 **关注状态**：`GET /api/user/followStatus`
 - 参数：`target_uid`
