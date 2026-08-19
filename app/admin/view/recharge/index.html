@@ -229,8 +229,7 @@ layui.use(['table', 'form', 'layer'], function () {
                 '<div class="recharge-field">' +
                     '<div class="recharge-label">充值币种 <span class="req">*</span></div>' +
                     '<select id="rcCurrency" class="layui-input">' +
-                        '<option value="cny" selected>人民币 (CNY)</option>' +
-                        '<option value="paw">熊爪</option>' +
+                        '<option value="paw" selected>熊爪</option>' +
                     '</select>' +
                 '</div>' +
                 // 3. 充值数量
@@ -316,7 +315,6 @@ layui.use(['table', 'form', 'layer'], function () {
                 }
                 var wHtml = '';
                 if (user && user.wallet) {
-                    wHtml += '<span class="w-tag">人民币<b>¥ ' + user.wallet.cny + '</b></span>';
                     wHtml += '<span class="w-tag">熊爪<b>' + user.wallet.paw + '</b></span>';
                 }
                 $('#rcWalletShow').html('当前余额：' + wHtml).show();

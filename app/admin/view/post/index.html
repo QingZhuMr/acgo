@@ -55,13 +55,16 @@
             <button type="button" class="layui-btn search-btn" lay-submit lay-filter="search" title="搜索"><i class="fas fa-search"></i></button>
         </div>
     </form>
-    <div class="layui-inline" style="margin-left:8px;">
-        <button type="button" id="btnBatchDel" class="layui-btn layui-btn-danger"><i class="fas fa-trash"></i> 批量删除选中</button>
-    </div>
 </div>
 <div class="page-content">
     <table id="postTable" lay-filter="postTable"></table>
 </div>
+
+<script type="text/html" id="postToolbar">
+    <div class="layui-btn-container">
+        <button class="layui-btn layui-btn-sm layui-btn-danger page-btn" lay-event="batchDel"><i class="fas fa-trash"></i> 批量删除选中</button>
+    </div>
+</script>
 
 <script type="text/html" id="barTpl">
     <button type="button" class="layui-btn layui-btn-xs op-btn" lay-event="ops" data-id="{{ d.id }}"><i class="fas fa-wrench"></i></button>
@@ -95,6 +98,7 @@ layui.use(['table', 'form', 'layer'], function () {
         page: true,
         limit: 20,
         limits: [10, 20, 50, 100],
+        toolbar: '#postToolbar',
         defaultToolbar: ['filter', 'print', 'exports'],
         autoSort: false,
         initSort: { field: 'id', type: 'desc' },
@@ -147,8 +151,14 @@ layui.use(['table', 'form', 'layer'], function () {
         postTable.reload({ initSort: obj, where: mergeQuery(), page: { curr: 1 } });
     });
 
-    // 导出（纯文本）
+    // 工具栏事件（批量删除 + Layui 原生导出/打印）
     table.on('toolbar(postTable)', function (obj) {
+        if (obj.event === 'batchDel') {
+            var check = table.checkStatus('postTable');
+            var ids = (check.data || []).map(function (r) { return r.id; });
+            if (ids.length === 0) { layer.msg('请先勾选要删除的帖子', { icon: 2 }); return; }
+            openBatchDelete(ids);
+        }
         if (obj.event === 'LAY_TABLE_EXPORT' || obj.event === 'exports') {
             var exportData = [];
             table.getData('postTable', true).forEach(function (r) {
@@ -451,13 +461,6 @@ layui.use(['table', 'form', 'layer'], function () {
         });
     }
 
-    // 批量删除按钮（全局事件委托：弹窗重建后仍有效，避免二次点击失效）
-    $(document).on('click', '#btnBatchDel', function () {
-        var check = table.checkStatus('postTable');
-        var ids = (check.data || []).map(function (r) { return r.id; });
-        if (ids.length === 0) { layer.msg('请先勾选要删除的帖子', { icon: 2 }); return; }
-        openBatchDelete(ids);
-    });
 });
 
 // ===== 删除评论（密码二次验证；供预览弹框内评论行调用） =====

@@ -157,20 +157,18 @@ class Recharge extends BaseController
     public function manualRecharge()
     {
         $userId   = (int) $this->request->post('user_id', 0);
-        $currency = strtolower(trim((string) $this->request->post('currency', 'cny')));
+        // 人工充值仅支持熊爪（不支持人民币充值）
+        $currency = 'paw';
         $amount   = (string) $this->request->post('amount', '');
         $remark   = trim((string) $this->request->post('remark', ''));
         $adminPwd = (string) $this->request->post('admin_password', '');
 
         // 校验参数
         if (!$userId) return json(['code' => 1, 'msg' => '请选择用户']);
-        if (!in_array($currency, ['cny', 'paw'], true)) {
-            return json(['code' => 1, 'msg' => '币种不合法']);
-        }
         if ('' === $amount || !is_numeric($amount) || (float) $amount <= 0) {
             return json(['code' => 1, 'msg' => '请输入正确的充值数量']);
         }
-        if ('paw' === $currency && (float) $amount != floor((float) $amount)) {
+        if ((float) $amount != floor((float) $amount)) {
             return json(['code' => 1, 'msg' => '熊爪数量必须为整数']);
         }
         if ('' === $adminPwd) return json(['code' => 1, 'msg' => '请输入管理员密码确认操作']);
@@ -190,8 +188,8 @@ class Recharge extends BaseController
         if (0 === (int) $user['status']) return json(['code' => 1, 'msg' => '该用户已注销，无法充值']);
         if (2 === (int) $user['status']) return json(['code' => 1, 'msg' => '该用户已被封禁']);
 
-        // 人民币保留 2 位小数；熊爪为整数积分
-        $amount = 'paw' === $currency ? round((float) $amount, 0) : round((float) $amount, 2);
+        // 熊爪为整数积分
+        $amount = round((float) $amount, 0);
         $now    = time();
 
         // 更新用户钱包对应币种余额

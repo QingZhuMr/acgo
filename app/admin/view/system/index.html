@@ -66,7 +66,15 @@
 {/block}
 
 {block name="content"}
-<div class="page-content setting-content">
+<div class="page-content">
+    <div class="layui-tab layui-tab-brief" lay-filter="systemTab">
+        <ul class="layui-tab-title">
+            <li class="layui-this">系统设置</li>
+            <li>运营设置</li>
+        </ul>
+        <div class="layui-tab-content">
+            <div class="layui-tab-item layui-show">
+                <div class="setting-content">
     <form class="layui-form" lay-filter="settingForm">
         <div class="layui-form-item">
             <label class="layui-form-label">应用名称</label>
@@ -156,6 +164,38 @@
             </div>
         </div>
     </form>
+                </div>
+            </div>
+
+            <div class="layui-tab-item">
+                <div class="setting-content">
+                    <form class="layui-form" lay-filter="opForm">
+                        <div class="layui-form-item">
+                            <label class="layui-form-label">未上线自动解除天数</label>
+                            <div class="layui-input-block">
+                                <input type="number" id="cfg_unbind_days" name="unbind_auto_days" min="1" max="365" placeholder="如 3" autocomplete="off" class="layui-input" style="max-width:240px;">
+                                <div class="setting-tip">绑定对象连续 N 天未上线后自动解除绑定（默认 3 天）。</div>
+                            </div>
+                        </div>
+
+                        <div class="layui-form-item">
+                            <label class="layui-form-label">自动解除补偿熊爪</label>
+                            <div class="layui-input-block">
+                                <input type="number" id="cfg_unbind_comp" name="unbind_auto_compensation" min="0" max="1000000" placeholder="如 20" autocomplete="off" class="layui-input" style="max-width:240px;">
+                                <div class="setting-tip">因绑定对象长期未上线被自动解除时，给仍在线的一方补偿熊爪（默认 20）。</div>
+                            </div>
+                        </div>
+
+                        <div class="layui-form-item">
+                            <div class="layui-input-block">
+                                <button class="layui-btn" lay-submit lay-filter="saveOperation">保存运营设置</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {/block}
 
@@ -184,6 +224,9 @@ layui.use(['form', 'layer'], function () {
             } else {
                 $('#cfg_maint_enabled').prop('checked', false).removeAttr('checked');
             }
+            // 运营设置回填
+            $('#cfg_unbind_days').val(res.data.unbind_auto_days || 3);
+            $('#cfg_unbind_comp').val(res.data.unbind_auto_compensation || 20);
             form.render();
             renderLexicon(res.data.lexicon);
             renderCustomWords(res.data.custom_words);
@@ -275,9 +318,31 @@ layui.use(['form', 'layer'], function () {
         });
     });
 
-    // 保存
+    // 保存系统设置
     form.on('submit(saveSetting)', function (data) {
         $.post('/system/save', data.field, function (res) {
+            if (res.code === 0) {
+                layer.msg(res.msg, { icon: 1 });
+            } else {
+                layer.msg(res.msg, { icon: 2 });
+            }
+        }, 'json');
+        return false;
+    });
+
+    // 保存运营设置（分开保存，互不影响）
+    form.on('submit(saveOperation)', function (data) {
+        var days = parseInt(data.field.unbind_auto_days, 10);
+        var comp = parseInt(data.field.unbind_auto_compensation, 10);
+        if (isNaN(days) || days < 1 || days > 365) {
+            layer.msg('未上线自动解除天数需在 1-365 之间', { icon: 2 });
+            return false;
+        }
+        if (isNaN(comp) || comp < 0 || comp > 1000000) {
+            layer.msg('补偿熊爪需在 0-1000000 之间', { icon: 2 });
+            return false;
+        }
+        $.post('/system/saveOperation', data.field, function (res) {
             if (res.code === 0) {
                 layer.msg(res.msg, { icon: 1 });
             } else {

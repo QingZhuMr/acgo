@@ -37,6 +37,9 @@ class System extends BaseController
                 'baidu_ak'            => (string) ($data['baidu_ak'] ?? ''),
                 'maintenance_enabled' => '1' === (string) ($data['maintenance_enabled'] ?? '0') ? '1' : '0',
                 'maintenance_notice'  => (string) ($data['maintenance_notice'] ?? ''),
+                // 运营设置：绑定对象未上线自动解除 + 补偿
+                'unbind_auto_days'         => (string) ($data['unbind_auto_days'] ?? '3'),
+                'unbind_auto_compensation' => (string) ($data['unbind_auto_compensation'] ?? '20'),
                 'lexicon'             => SensitiveLexicon::info(),
                 'custom_words'        => $this->customWords(),
             ],
@@ -174,6 +177,28 @@ class System extends BaseController
         } catch (\Throwable $e) {
             // 广播失败不影响保存结果
         }
+
+        return json(['code' => 0, 'msg' => '保存成功']);
+    }
+
+    /**
+     * 保存运营设置（与系统设置分开保存）
+     */
+    public function saveOperation()
+    {
+        $days = (int) $this->request->post('unbind_auto_days', 3);
+        $comp = (int) $this->request->post('unbind_auto_compensation', 20);
+
+        if ($days < 1 || $days > 365) {
+            return json(['code' => 1, 'msg' => '未上线自动解除天数需在 1-365 之间']);
+        }
+        if ($comp < 0 || $comp > 1000000) {
+            return json(['code' => 1, 'msg' => '补偿熊爪需在 0-1000000 之间']);
+        }
+
+        $now = time();
+        $this->setConfig('unbind_auto_days', (string) $days, '绑定对象未上线自动解除天数', $now);
+        $this->setConfig('unbind_auto_compensation', (string) $comp, '自动解除绑定补偿熊爪数量', $now);
 
         return json(['code' => 0, 'msg' => '保存成功']);
     }

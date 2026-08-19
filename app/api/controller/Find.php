@@ -58,6 +58,8 @@ class Find extends BaseController
 
         // 超时未配对的任务：自动停止并退回扣费
         $this->expireStaleFinds($uid, time());
+        // 绑定对象长期未上线：自动解除绑定并补偿熊爪（懒检查）
+        $this->autoUnbind($uid);
 
         return json([
             'code' => 0,
@@ -292,6 +294,8 @@ class Find extends BaseController
 
         // 超时未配对：自动停止并退回扣费
         $this->expireStaleFinds($uid, time());
+        // 绑定对象长期未上线：自动解除绑定并补偿熊爪（懒检查）
+        $this->autoUnbind($uid);
 
         return json([
             'code' => 0,
@@ -518,6 +522,107 @@ class Find extends BaseController
                 'refunded'  => 1,
             ]);
         }
+    }
+
+    /**
+     * 绑定对象长期未上线：自动解除绑定并补偿熊爪（懒检查，任意接口触发时顺带处理当前用户）
+     *
+     * 规则：绑定对象超过 unbind_auto_days 天未上线 → 自动解除绑定，
+     *      并给"被离开方"（仍在线访问接口的一方）补偿 unbind_auto_compensation 熊爪。
+     */
+    protected function autoUnbind(int $uid): void
+    {
+        $days = (int) $this->getConfigValue('unbind_auto_days', 3);
+        $compensation = (int) $this->getConfigValue('unbind_auto_compensation', 20);
+        if ($days <= 0 || $compensation <= 0) {
+            return; // 未配置自动解除
+        }
+
+        // 当前用户的有效绑定
+        $bind = Db::name('user_bind')
+            ->where('status', 1)
+            ->where(function ($q) use ($uid) {
+                $q->where('user_a', $uid)->whereOr('user_b', $uid);
+            })
+            ->find();
+        if (!$bind) {
+            return;
+        }
+
+        $partnerUid = ((int) $bind['user_a'] === $uid) ? (int) $bind['user_b'] : (int) $bind['user_a'];
+
+        // 对方最后上线时间（user_device 最大 last_online_time，兜底 user.last_login_time）
+        $lastOnline = (int) Db::name('user_device')->where('user_id', $partnerUid)->max('last_online_time');
+        if ($lastOnline <= 0) {
+            $lastOnline = (int) Db::name('user')->where('id', $partnerUid)->value('last_login_time');
+        }
+        if ($lastOnline <= 0) {
+            return;
+        }
+
+        $deadline = time() - $days * 86400;
+        if ($lastOnline >= $deadline) {
+            return; // 对方未超期，不解绑
+        }
+
+        // 对方超期未上线 → 自动解绑 + 补偿当前用户（被离开方）
+        $now = time();
+        Db::name('user_bind')
+            ->where('id', (int) $bind['id'])
+            ->where('status', 1)
+            ->update(['status' => 0, 'unbind_time' => $now]);
+
+        // 补偿熊爪
+        $wallet = Db::name('wallet')->where('uid', $uid)->find();
+        if ($wallet) {
+            Db::name('wallet')->where('uid', $uid)
+                ->inc('balance_paw', $compensation)
+                ->update(['update_time' => $now]);
+            $paw = (int) $wallet['balance_paw'] + $compensation;
+            $cny = (float) $wallet['balance_cny'];
+        } else {
+            Db::name('wallet')->insert([
+                'uid'          => $uid,
+                'balance_paw'  => $compensation,
+                'balance_cny'  => 0,
+                'create_time'  => $now,
+                'update_time'  => $now,
+            ]);
+            $paw = $compensation;
+            $cny = 0.0;
+        }
+        Pusher::pushWallet($uid, ['paw' => $paw, 'cny' => $cny]);
+
+        // 通知 type=8（自动解除绑定）+ WS 推送
+        $partner = UserInfoCache::get($partnerUid);
+        $commentContent = '补偿 ' . $compensation . ' 熊爪';
+        $nid = Db::name('notification')->insertGetId([
+            'user_id'         => $uid,
+            'from_uid'        => $partnerUid,
+            'post_id'         => 0,
+            'post_content'    => (string) ($bind['planet_id'] ?? 0),
+            'comment_id'      => 0,
+            'comment_content' => $commentContent,
+            'type'            => 8,
+            'is_read'         => 0,
+            'create_time'     => $now,
+        ]);
+        Pusher::send(
+            ['user_id' => $uid],
+            [
+                'type'         => 'match_notice',
+                'notification' => [
+                    'id'              => (int) $nid,
+                    'from_uid'        => $partnerUid,
+                    'from_nickname'   => (string) ($partner['nickname'] ?? ''),
+                    'from_avatar'     => (string) ($partner['avatar'] ?? ''),
+                    'type'            => 8,
+                    'post_content'    => (string) ($bind['planet_id'] ?? 0),
+                    'comment_content' => $commentContent,
+                    'create_time'     => $now,
+                ],
+            ]
+        );
     }
 
     /**

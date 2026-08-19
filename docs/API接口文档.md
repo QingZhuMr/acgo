@@ -576,7 +576,7 @@
 
 > 他人评论了我的帖子 / 回复了我的评论时生成一条通知。通知在 `post/comment` 落库评论后同步写入 `notification` 表，并经 `Pusher` 实时推送 `reply_notice`（对方在线立即收到），离线时由客户端下次轮询未读数兜底。
 >
-> 「开始寻找」配对成功（type=6）/ 解除绑定（type=7）也落库通知，经 `Pusher` 推送 `match_notice`（客户端 `NotificationCenter` 实时处理 + 系统通知）。
+> 「开始寻找」配对成功（type=6）/ 解除绑定（type=7）/ 绑定对象长期未上线自动解除并补偿（type=8）也落库通知，经 `Pusher` 推送 `match_notice`（客户端 `NotificationCenter` 实时处理 + 系统通知）。
 
 ### 6.1 通知列表（业务）
 
@@ -591,7 +591,7 @@
 
 **返回 data**：`list[] { id, from_uid, from_nickname, from_avatar, post_id, post_content, comment_id, comment_content, type, is_read, create_time, create_time_text }`、`total`、`unread_count`、`page`
 
-- `type`：`1`=评论了我的帖子，`2`=回复了我的评论，`3`=关注了我，`4`=赞了我的动态，`5`=收藏了我的动态，`6`=配对成功（`post_content` 存星球名），`7`=解除绑定
+- `type`：`1`=评论了我的帖子，`2`=回复了我的评论，`3`=关注了我，`4`=赞了我的动态，`5`=收藏了我的动态，`6`=配对成功（`post_content` 存星球名），`7`=解除绑定，`8`=绑定对象长期未上线自动解除（`post_content` 存星球 ID，`comment_content` 存「补偿 X 熊爪」）
 - `post_content`/`comment_content`：展示用正文摘要（已截断、换行替换为空格）
 - `from_nickname`/`from_avatar`：触发者昵称/头像**实时联表 `user` 表获取**（经 Redis 缓存，TTL 10 分钟，见 `app/common/UserInfoCache.php`），`notification` 表不再存冗余快照；头像为空时返回默认头像
 
@@ -1077,6 +1077,28 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 - 客户端登录接口返回 `503`（禁止登录 + 展示公告）
 - 已在线客户端通过 WebSocket 实时收到 `maintenance` 推送 → 展示常驻公告（不退出登录）
 - 新启动客户端通过 `user/domain` 的 `maintenance` 字段展示公告
+
+### 10.1 运营设置（admin，`app/admin/controller/System.php`）
+
+后台「系统设置」页内新增「运营设置」Tab（layui-tab 双面板），与系统设置**分开保存**：
+
+| 接口 | 路径 | 说明 |
+|------|------|------|
+| 获取全部配置 | `GET admin/System/getConfig` | 返回系统设置 + 运营设置全部配置项 |
+| 保存运营设置 | `POST admin/System/saveOperation` | 仅保存运营配置，参数：`unbind_auto_days`、`unbind_auto_compensation` |
+
+运营配置项（存 `config` 表）：
+
+| 配置名 | 默认值 | 说明 |
+|--------|--------|------|
+| `unbind_auto_days` | `3` | 绑定对象连续多少天未上线则自动解除绑定（1-365） |
+| `unbind_auto_compensation` | `20` | 自动解除绑定时补偿被离开方的熊爪数量（0-1000000） |
+
+**自动解绑 + 补偿规则**：
+- 判定依据：绑定方（`user_bind` status=1 中任一方）最后在线时间（取 `user_device` 最大 `last_online_time`，兜底 `user.last_login_time`）早于 `time() - unbind_auto_days * 86400` 即视为长期未上线。
+- 触发方式：**懒检查**——`Find::config()`/`Find::status()` 访问时检查当前用户的绑定并解绑。（曾实现 WS 每 60 秒全表兜底扫描，因阻塞单 worker 事件循环已移除；超期绑定需双方中任一方再次访问接口时才解除）
+- 解除后：绑定置 `status=0` + `unbind_time`；给**被离开方**（仍在线/最后活跃较晚的一方）的 `wallet.balance_paw` 补偿 `unbind_auto_compensation` 熊爪，并通过 WS 推送 `wallet` 实时更新余额；落库 `notification`（type=8）并推送 `match_notice`。
+- 幂等：解绑 `UPDATE` 带 `AND status=1`，并发场景下仅首个事务生效。
 
 ---
 
