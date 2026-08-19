@@ -69,7 +69,7 @@
 <!-- 表格工具栏：新增星球 -->
 <script type="text/html" id="planetToolbar">
     <div class="layui-btn-container">
-        <button class="layui-btn layui-btn-sm page-btn" id="btnAddPlanet">新增星球</button>
+        <button class="layui-btn layui-btn-sm page-btn" id="btnAddPlanet" lay-event="add">新增星球</button>
     </div>
 </script>
 
@@ -194,9 +194,12 @@ layui.use(['table', 'form', 'layer'], function () {
             content: html,
             closeBtn: 1,
             shade: 0.4,
-            shadeClose: false
+            shadeClose: false,
+            success: function (layero) {
+                // 弹窗 DOM 就绪后再渲染 radio（否则 title 文字标签不显示）
+                form.render('radio');
+            }
         });
-        form.render('radio');
 
         $('#plCancel').on('click', function () { layer.close(layerIndex); });
 
@@ -224,8 +227,12 @@ layui.use(['table', 'form', 'layer'], function () {
         });
     }
 
-    // 新增按钮
-    $('#btnAddPlanet').on('click', function () { openEdit(null); });
+    // 新增按钮（toolbar 委托事件：reload 后仍有效，避免刷新才能打开）
+    table.on('toolbar(planetTable)', function (obj) {
+        if (obj.event === 'add') {
+            openEdit(null);
+        }
+    });
 
     // 表格操作（编辑 / 上下线 / 删除）
     table.on('tool(planetTable)', function (obj) {
