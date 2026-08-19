@@ -97,10 +97,11 @@ class Planet extends BaseController
      */
     public function add()
     {
-        $name  = trim((string) $this->request->post('name', ''));
-        $intro = trim((string) $this->request->post('intro', ''));
-        $sort  = (int) $this->request->post('sort', 0);
-        $type  = trim((string) $this->request->post('type', 'earth'));
+        $name      = trim((string) $this->request->post('name', ''));
+        $intro     = trim((string) $this->request->post('intro', ''));
+        $sort      = (int) $this->request->post('sort', 0);
+        $type      = trim((string) $this->request->post('type', 'earth'));
+        $matchCost = (int) $this->request->post('match_cost', 0);
 
         if (!isset(self::TYPES[$type])) {
             return json(['code' => 1, 'msg' => '星球类型不合法']);
@@ -114,6 +115,9 @@ class Planet extends BaseController
         if (mb_strlen($intro) > 500) {
             return json(['code' => 1, 'msg' => '星球介绍最长 500 字']);
         }
+        if ($matchCost < 0) {
+            return json(['code' => 1, 'msg' => '单次匹配费用不能为负']);
+        }
 
         $now = time();
         $id  = Db::name('planet')->insertGetId([
@@ -122,6 +126,7 @@ class Planet extends BaseController
             'name'        => $name,
             'intro'       => $intro,
             'sort'        => $sort,
+            'match_cost'  => $matchCost,
             'status'      => 1,
             'create_time' => $now,
             'update_time' => $now,
@@ -145,11 +150,12 @@ class Planet extends BaseController
             return json(['code' => 1, 'msg' => '星球不存在']);
         }
 
-        $name   = trim((string) $this->request->post('name', ''));
-        $intro  = trim((string) $this->request->post('intro', ''));
-        $sort   = (int) $this->request->post('sort', 0);
-        $status = (int) $this->request->post('status', 1);
-        $type   = trim((string) $this->request->post('type', $row['type'] ?? 'earth'));
+        $name      = trim((string) $this->request->post('name', ''));
+        $intro     = trim((string) $this->request->post('intro', ''));
+        $sort      = (int) $this->request->post('sort', 0);
+        $status    = (int) $this->request->post('status', 1);
+        $type      = trim((string) $this->request->post('type', $row['type'] ?? 'earth'));
+        $matchCost = (int) $this->request->post('match_cost', -1);
 
         if (!isset(self::TYPES[$type])) {
             return json(['code' => 1, 'msg' => '星球类型不合法']);
@@ -163,15 +169,24 @@ class Planet extends BaseController
         if (mb_strlen($intro) > 500) {
             return json(['code' => 1, 'msg' => '星球介绍最长 500 字']);
         }
+        if ($matchCost < -1) {
+            return json(['code' => 1, 'msg' => '单次匹配费用不能为负']);
+        }
 
-        Db::name('planet')->where('id', $id)->update([
+        $update = [
             'type'        => $type,
             'name'        => $name,
             'intro'       => $intro,
             'sort'        => $sort,
             'status'      => $status === 1 ? 1 : 0,
             'update_time' => time(),
-        ]);
+        ];
+        // 仅在表单传了该字段时才更新（保留原值，避免旧表单清空自定义配置）
+        if ($matchCost >= 0) {
+            $update['match_cost'] = $matchCost;
+        }
+
+        Db::name('planet')->where('id', $id)->update($update);
 
         $this->log('planet_edit', '编辑星球 id=' . $id . ' 名称=' . $name);
         return json(['code' => 0, 'msg' => '保存成功']);
