@@ -22,7 +22,12 @@ CREATE TABLE `planet` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='星球表';
 
 -- -----------------------------------------------------
--- 后台菜单：星球管理（挂到「运营管理」parent_id=10 下）
+-- 后台菜单：星球管理（挂到顶级「运营」/「运营管理」菜单下）
+-- 注：不硬编码父级 id（不同环境菜单 id 可能不同），按标题动态查找。
 -- -----------------------------------------------------
-INSERT INTO `menu` (`parent_id`, `title`, `icon`, `url`, `level`, `sort`, `status`, `create_time`) VALUES
-(10, '星球管理', 'fas fa-globe', '/planet/index', 1, 1, 1, UNIX_TIMESTAMP());
+INSERT INTO `menu` (`parent_id`, `title`, `icon`, `url`, `level`, `sort`, `status`, `create_time`)
+SELECT `id`, '星球管理', 'fas fa-globe', '/planet/index', 1, 2, 1, UNIX_TIMESTAMP()
+FROM `menu`
+WHERE `parent_id` = 0 AND `title` IN ('运营', '运营管理')
+ORDER BY `id` ASC
+LIMIT 1;

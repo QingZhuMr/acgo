@@ -831,7 +831,7 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | 删除 | `/admin/planet/delete` | POST | `id` |
 | 上下线 | `/admin/planet/toggle` | POST | `id`/`status` |
 
-> 建表 SQL：`sql/planet.sql`；后台菜单「运营管理 → 星球管理」由同一 SQL 插入。
+> 建表 SQL：`sql/planet.sql`；后台菜单「运营 → 星球管理」由同一 SQL 插入（按标题动态查找父级菜单，不硬编码 id）。
 
 ---
 
