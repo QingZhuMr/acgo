@@ -758,6 +758,21 @@ class User extends BaseController
         $ids = array_column($mutualRows, 'follower_id');
         $list = [];
         if ($ids) {
+            // 绑定关系集合（配对绑定 status=1，user_a 恒为较小 ID），用于好友列表标记"绑定"
+            $bindUids = [];
+            $bindRows = Db::name('user_bind')
+                ->where('status', 1)
+                ->where(function ($q) use ($uid) {
+                    $q->where('user_a', $uid)->whereOr('user_b', $uid);
+                })
+                ->field('user_a,user_b')
+                ->select()
+                ->toArray();
+            foreach ($bindRows as $br) {
+                $bindUids[(int) $br['user_a']] = (int) $br['user_b'];
+                $bindUids[(int) $br['user_b']] = (int) $br['user_a'];
+            }
+
             $userMap = UserInfoCache::batch($ids);
             // 在线用户集合（任一设备长连接在线即在线）
             $onlineUserIds = [];
@@ -780,6 +795,7 @@ class User extends BaseController
                     'follow_time' => (int) $r['create_time'],
                     'online'      => isset($onlineMap[$fid]),
                     'remark'      => $remarkMap[$fid] ?? '',
+                    'is_bind'     => isset($bindUids[$fid]) ? 1 : 0,
                 ];
             }
         }
