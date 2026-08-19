@@ -50,6 +50,12 @@ class AdminLog
         // 版本管理
         'upload'           => '上传安装包',
 
+        // 星球管理
+        'planet_create'    => '创建星球',
+        'planet_edit'      => '编辑星球',
+        'planet_delete'    => '删除星球',
+        'planet_toggle'    => '切换星球状态',
+
         // 系统
         'system_setting'   => '系统设置',
 

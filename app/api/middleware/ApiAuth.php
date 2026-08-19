@@ -32,6 +32,7 @@ class ApiAuth
         'captcha/image',
         'post/list',      // 广场列表：游客可浏览
         'post/detail',    // 帖子详情：游客可浏览
+        'planet/list',    // 星球列表：游客可浏览（公开只读数据）
         // AI/机器人专用接口（免签名免设备密钥，靠 X-AI-Token 独立保护）
         'ai/batchCreate',
         'ai/uploadAvatar',

@@ -1,0 +1,264 @@
+{extend name="layout" /}
+
+{block name="title"}星球管理{/block}
+
+{block name="style"}
+<style>
+    .planet-layer { padding: 20px 24px 24px; }
+    .planet-field { margin-bottom: 18px; }
+    .planet-label {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .planet-label .req { color: var(--danger); }
+    .planet-label .tip { font-size: 12px; color: var(--text-faint); font-weight: 400; }
+    .planet-seed-box {
+        font-size: 13px;
+        color: var(--text-body);
+        background: var(--bg-hover);
+        border-radius: 6px;
+        padding: 8px 10px;
+        line-height: 1.5;
+        word-break: break-all;
+    }
+    .planet-intro-preview {
+        color: var(--text-body);
+        max-width: 260px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .planet-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+    }
+</style>
+{/block}
+
+{block name="content"}
+<div class="page-search">
+    <form class="layui-form" lay-filter="searchForm">
+        <div class="layui-inline">
+            <input type="text" name="keyword" placeholder="搜索名称/介绍" autocomplete="off" class="layui-input" style="width:220px;">
+        </div>
+        <div class="layui-inline">
+            <select name="status" title="状态筛选">
+                <option value="">全部状态</option>
+                <option value="1">已启用</option>
+                <option value="0">已禁用</option>
+            </select>
+        </div>
+        <div class="layui-inline">
+            <button type="button" class="layui-btn search-btn" lay-submit lay-filter="search" title="搜索"><i class="fas fa-search"></i></button>
+        </div>
+    </form>
+</div>
+<div class="page-content">
+    <table id="planetTable" lay-filter="planetTable"></table>
+</div>
+
+<!-- 表格工具栏：新增星球 -->
+<script type="text/html" id="planetToolbar">
+    <div class="layui-btn-container">
+        <button class="layui-btn layui-btn-sm page-btn" id="btnAddPlanet">新增星球</button>
+    </div>
+</script>
+
+<!-- 操作列 -->
+<script type="text/html" id="planetActionBar">
+    <button class="layui-btn layui-btn-xs layui-btn-normal" lay-event="edit">编辑</button>
+    {{# if(d.status == 1){ }}
+    <button class="layui-btn layui-btn-xs layui-btn-warm" lay-event="disable">禁用</button>
+    {{# } else { }}
+    <button class="layui-btn layui-btn-xs layui-btn-success" lay-event="enable">启用</button>
+    {{# } }}
+    <button class="layui-btn layui-btn-xs layui-btn-danger" lay-event="del">删除</button>
+</script>
+{/block}
+
+{block name="script"}
+<script>
+layui.use(['table', 'form', 'layer'], function () {
+    var table = layui.table;
+    var form  = layui.form;
+    var layer = layui.layer;
+
+    form.render();
+
+    var sortParam = { field: 'id', order: 'desc' };
+    var searchWhere = {};
+    function mergeQuery() {
+        var q = {};
+        Object.keys(searchWhere).forEach(function (k) { q[k] = searchWhere[k]; });
+        q.field = sortParam.field;
+        q.order = sortParam.order;
+        return q;
+    }
+
+    var planetTable = table.render({
+        elem: '#planetTable',
+        url: '/planet/getList',
+        method: 'get',
+        page: true,
+        limit: 20,
+        limits: [10, 20, 50, 100],
+        toolbar: '#planetToolbar',
+        defaultToolbar: ['filter', 'print', 'exports'],
+        autoSort: false,
+        initSort: { field: 'id', type: 'desc' },
+        cols: [[
+            { field: 'id', title: 'ID', width: 70, align: 'center', sort: true },
+            { field: 'name', title: '名称', minWidth: 120 },
+            { field: 'seed', title: '种子', width: 110, align: 'center' },
+            { field: 'intro', title: '介绍', minWidth: 200,
+              templet: function (d) {
+                  return '<div class="planet-intro-preview" title="' + (d.intro || '') + '">' + (d.intro || '-') + '</div>';
+              }
+            },
+            { field: 'sort', title: '排序', width: 80, align: 'center', sort: true },
+            { field: 'status', title: '状态', width: 90, align: 'center',
+              templet: function (d) {
+                  return '<span class="badge ' + d.status_badge + '">' + d.status_text + '</span>';
+              }
+            },
+            { field: 'create_time_text', title: '创建时间', minWidth: 160 },
+            { field: 'action', title: '操作', width: 210, align: 'center', toolbar: '#planetActionBar' }
+        ]]
+    });
+
+    // 搜索
+    form.on('submit(search)', function (data) {
+        searchWhere = data.field || {};
+        planetTable.reload({ where: mergeQuery(), page: { curr: 1 } });
+        return false;
+    });
+
+    // 表头排序
+    table.on('sort(planetTable)', function (obj) {
+        sortParam.field = obj.field || 'id';
+        sortParam.order = obj.type || 'desc';
+        planetTable.reload({
+            initSort: obj,
+            where: mergeQuery(),
+            page: { curr: 1 }
+        });
+    });
+
+    // ===== 新增 / 编辑弹窗 =====
+    function openEdit(row) {
+        var isEdit = !!row;
+        var html = '' +
+            '<div class="planet-layer">' +
+                '<div class="planet-field">' +
+                    '<div class="planet-label">星球名称 <span class="req">*</span></div>' +
+                    '<input type="text" id="plName" placeholder="请输入星球名称（最多50字）" autocomplete="off" maxlength="50" class="layui-input" value="' + (isEdit ? (row.name || '') : '') + '">' +
+                '</div>' +
+                '<div class="planet-field">' +
+                    '<div class="planet-label">星球介绍</div>' +
+                    '<textarea id="plIntro" placeholder="请输入星球介绍（最多500字）" class="layui-textarea" rows="4" maxlength="500">' + (isEdit ? (row.intro || '') : '') + '</textarea>' +
+                '</div>' +
+                '<div class="planet-field">' +
+                    '<div class="planet-label">排序 <span class="tip">（数值越小越靠前，默认 0）</span></div>' +
+                    '<input type="number" id="plSort" placeholder="0" autocomplete="off" class="layui-input" value="' + (isEdit ? (row.sort != null ? row.sort : '0') : '0') + '">' +
+                '</div>' +
+                (isEdit ?
+                    '<div class="planet-field">' +
+                        '<div class="planet-label">种子 <span class="tip">（创建时自动生成，决定星球外观，不可修改）</span></div>' +
+                        '<div class="planet-seed-box">' + row.seed + '</div>' +
+                    '</div>' +
+                    '<div class="planet-field">' +
+                        '<div class="planet-label">状态</div>' +
+                        '<input type="radio" name="plStatus" value="1" title="启用" ' + (parseInt(row.status, 10) === 1 ? 'checked' : '') + '>' +
+                        '<input type="radio" name="plStatus" value="0" title="禁用" ' + (parseInt(row.status, 10) === 0 ? 'checked' : '') + '>' +
+                    '</div>'
+                    : '') +
+                '<div class="planet-actions">' +
+                    '<button type="button" class="layui-btn layui-btn-primary" id="plCancel">取消</button>' +
+                    '<button type="button" class="layui-btn" id="plSubmit">' + (isEdit ? '保存' : '创建') + '</button>' +
+                '</div>' +
+            '</div>';
+
+        var layerIndex = layer.open({
+            type: 1,
+            title: isEdit ? '编辑星球' : '新增星球',
+            area: ['480px', 'auto'],
+            content: html,
+            closeBtn: 1,
+            shade: 0.4,
+            shadeClose: false
+        });
+        form.render('radio');
+
+        $('#plCancel').on('click', function () { layer.close(layerIndex); });
+
+        $('#plSubmit').on('click', function () {
+            var name = $('#plName').val().trim();
+            var intro = $('#plIntro').val().trim();
+            var sort = parseInt($('#plSort').val(), 10);
+            if (isNaN(sort)) sort = 0;
+            if (name === '') { layer.msg('请输入星球名称', { icon: 2 }); return; }
+            var postData = { name: name, intro: intro, sort: sort };
+            if (isEdit) {
+                postData.id = row.id;
+                postData.status = $('input[name="plStatus"]:checked').val() === '1' ? 1 : 0;
+            }
+            var url = isEdit ? '/planet/edit' : '/planet/add';
+            $.post(url, postData, function (res) {
+                if (res.code === 0) {
+                    layer.close(layerIndex);
+                    layer.msg(res.msg, { icon: 1 });
+                    planetTable.reload();
+                } else {
+                    layer.msg(res.msg, { icon: 2 });
+                }
+            }, 'json');
+        });
+    }
+
+    // 新增按钮
+    $('#btnAddPlanet').on('click', function () { openEdit(null); });
+
+    // 表格操作（编辑 / 上下线 / 删除）
+    table.on('tool(planetTable)', function (obj) {
+        var row = obj.data;
+        if (obj.event === 'edit') {
+            openEdit(row);
+        } else if (obj.event === 'enable' || obj.event === 'disable') {
+            var toStatus = obj.event === 'enable' ? 1 : 0;
+            layer.confirm('确定要' + (toStatus === 1 ? '启用' : '禁用') + '星球「' + row.name + '」吗？', function (idx) {
+                layer.close(idx);
+                $.post('/planet/toggle', { id: row.id, status: toStatus }, function (res) {
+                    if (res.code === 0) {
+                        layer.msg(res.msg, { icon: 1 });
+                        planetTable.reload();
+                    } else {
+                        layer.msg(res.msg, { icon: 2 });
+                    }
+                }, 'json');
+            });
+        } else if (obj.event === 'del') {
+            layer.confirm('确定要删除星球「' + row.name + '」吗？删除后客户端将不再展示。', function (idx) {
+                layer.close(idx);
+                $.post('/planet/delete', { id: row.id }, function (res) {
+                    if (res.code === 0) {
+                        layer.msg(res.msg, { icon: 1 });
+                        planetTable.reload();
+                    } else {
+                        layer.msg(res.msg, { icon: 2 });
+                    }
+                }, 'json');
+            });
+        }
+    });
+});
+</script>
+{/block}

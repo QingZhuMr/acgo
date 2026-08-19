@@ -792,9 +792,52 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 
 ---
 
-## 7. 应用标识（Index）
+## 7. 星球（Planet）
 
-### 7.1 应用信息
+### 7.1 星球列表（公开）
+
+- **路径**：`GET /api/planet/list`
+- **鉴权**：公开（仅签名，游客可浏览）
+- **功能**：返回后台创建的**已启用**星球列表，按 `sort` 升序、`id` 升序。客户端星球页据此展示星球名称/介绍，并按 `seed` 程序化生成对应星球外观（同一种子 → 同一星球）。
+
+**返回 data**：数组，每项：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | int | 星球 ID |
+| seed | int | 星球种子（后台创建时自动生成，决定星球外观） |
+| name | string | 星球名称 |
+| intro | string | 星球介绍 |
+
+**示例**：
+```json
+{
+  "code": 0,
+  "msg": "ok",
+  "data": [
+    { "id": 1, "seed": 36184205, "name": "翡翠星", "intro": "一片广袤的绿色大陆。" }
+  ]
+}
+```
+
+### 7.2 后台星球管理（admin，`app/admin/controller/Planet.php`）
+
+| 接口 | 路径 | 方法 | 说明 |
+|------|------|------|------|
+| 管理页 | `/admin/planet/index` | GET | 页面视图 |
+| 列表 | `/admin/planet/getList` | GET | 分页 + 关键词/状态搜索 |
+| 新增 | `/admin/planet/add` | POST | `name`（必填≤50）/`intro`（≤500）/`sort`；**种子自动生成 `random_int(1,99999999)`** |
+| 编辑 | `/admin/planet/edit` | POST | `id`/`name`/`intro`/`sort`/`status`（种子不可修改） |
+| 删除 | `/admin/planet/delete` | POST | `id` |
+| 上下线 | `/admin/planet/toggle` | POST | `id`/`status` |
+
+> 建表 SQL：`sql/planet.sql`；后台菜单「运营管理 → 星球管理」由同一 SQL 插入。
+
+---
+
+## 8. 应用标识（Index）
+
+### 8.1 应用信息
 
 - **路径**：`GET /api/index/index`
 - **鉴权**：见下方说明
@@ -848,12 +891,13 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | 通知单条已读 | `/api/notification/read` | POST | 业务 |
 | 通知全部已读 | `/api/notification/readAll` | POST | 业务 |
 | 通知批量删除 | `/api/notification/delete` | POST | 业务 |
+| 星球列表 | `/api/planet/list` | GET | 公开 |
 | 应用信息 | `/api/index/index` | GET | 业务* |
 
 
 ---
 
-## 8. WebSocket 实时推送（非 HTTP 接口）
+## 9. WebSocket 实时推送（非 HTTP 接口）
 
 客户端登录后建立 WebSocket 长连接（地址来自 `user/domain` 的 `ws_url`），服务端可主动推送：
 
@@ -884,7 +928,7 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 
 ---
 
-## 9. 后台维护管理
+## 10. 后台维护管理
 
 后台「系统设置」页可配置平台维护：
 
@@ -898,7 +942,7 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 
 ---
 
-## 10. 后台帖子 / 评论管理接口（admin）
+## 11. 后台帖子 / 评论管理接口（admin）
 
 后台帖子管理（`admin/Post`）提供帖子与评论的管理接口，均需管理员登录 + 密码二次验证：
 
