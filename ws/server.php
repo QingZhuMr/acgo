@@ -371,6 +371,16 @@ function flushQueue(Swoole\WebSocket\Server $server, Swoole\Table $table): void
             . " delivered={$hit}\n",
             FILE_APPEND
         );
+        if ($hit === 0) {
+            // 用户当前不在线：通知类消息保留未推送状态，等用户上线后重推
+            // （配对/评论/回复/关注等离线通知，登录后要能补收）。
+            // force_logout / maintenance 是即时控制消息，离线无需重放，直接视为已推送。
+            $type = (string) ($payload['type'] ?? '');
+            if ($type === 'force_logout' || $type === 'maintenance') {
+                $ids[] = (int) $row['id'];
+            }
+            continue;
+        }
         $ids[] = (int) $row['id'];
     }
 
@@ -382,6 +392,13 @@ function flushQueue(Swoole\WebSocket\Server $server, Swoole\Table $table): void
         } catch (Throwable $e) {
             // 忽略
         }
+    }
+
+    // 过期清理：删除 7 天前仍未推送的记录，防止长期离线用户堆积队列
+    try {
+        $pdo->exec('DELETE FROM push_queue WHERE pushed = 0 AND create_time < ' . (time() - 604800));
+    } catch (Throwable $e) {
+        // 忽略
     }
 }
 

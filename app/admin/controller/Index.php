@@ -101,7 +101,7 @@ class Index extends BaseController
     {
         // 货币中文名（双轨制：人民币 + 熊爪）
         $curName = ['cny' => '人民币', 'paw' => '熊爪'];
-        $curSym  = ['cny' => '¥', 'paw' => '熊爪'];
+        $curSym  = ['cny' => '¥', 'paw' => ''];
 
         // 按币种汇总已完成（status=3）的总金额
         $rows = Db::name('recharge')

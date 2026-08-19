@@ -1,0 +1,184 @@
+{extend name="layout" /}
+
+{block name="title"}社交关系管理{/block}
+
+{block name="style"}
+<style>
+    .acgo-uid { color: #1E9FFF; cursor: pointer; }
+</style>
+{/block}
+
+{block name="content"}
+<div class="layui-fluid">
+    <div class="layui-tab" lay-filter="socialTab">
+        <ul class="layui-tab-title">
+            <li class="layui-this">寻找记录</li>
+            <li>绑定关系</li>
+            <li>黑名单</li>
+            <li>关注</li>
+        </ul>
+
+        <!-- 寻找记录 -->
+        <div class="layui-tab-item layui-show">
+            <form class="layui-form layui-form-pane" lay-filter="findSearch">
+                <div class="layui-form-item acgo-search-row">
+                    <div class="layui-inline"><label class="layui-form-label">用户ID</label><div class="layui-input-inline"><input type="text" name="uid" class="layui-input"></div></div>
+                    <div class="layui-inline"><label class="layui-form-label">星球ID</label><div class="layui-input-inline"><input type="text" name="planet_id" class="layui-input"></div></div>
+                    <div class="layui-inline"><label class="layui-form-label">状态</label><div class="layui-input-inline"><select name="status"><option value="">全部</option><option value="0">寻找中</option><option value="1">已配对</option><option value="2">已停止</option></select></div></div>
+                    <div class="layui-inline"><button class="layui-btn" lay-submit lay-filter="findSearchBtn">搜索</button><button type="reset" class="layui-btn layui-btn-primary">重置</button></div>
+                </div>
+            </form>
+            <table id="findTable" lay-filter="findTable"></table>
+        </div>
+
+        <!-- 绑定关系 -->
+        <div class="layui-tab-item">
+            <form class="layui-form layui-form-pane" lay-filter="bindSearch">
+                <div class="layui-form-item acgo-search-row">
+                    <div class="layui-inline"><label class="layui-form-label">用户ID</label><div class="layui-input-inline"><input type="text" name="uid" class="layui-input"></div></div>
+                    <div class="layui-inline"><button class="layui-btn" lay-submit lay-filter="bindSearchBtn">搜索</button><button type="reset" class="layui-btn layui-btn-primary">重置</button></div>
+                </div>
+            </form>
+            <table id="bindTable" lay-filter="bindTable"></table>
+        </div>
+
+        <!-- 黑名单 -->
+        <div class="layui-tab-item">
+            <form class="layui-form layui-form-pane" lay-filter="blockSearch">
+                <div class="layui-form-item acgo-search-row">
+                    <div class="layui-inline"><label class="layui-form-label">用户ID</label><div class="layui-input-inline"><input type="text" name="uid" class="layui-input"></div></div>
+                    <div class="layui-inline"><button class="layui-btn" lay-submit lay-filter="blockSearchBtn">搜索</button><button type="reset" class="layui-btn layui-btn-primary">重置</button></div>
+                </div>
+            </form>
+            <table id="blockTable" lay-filter="blockTable"></table>
+        </div>
+
+        <!-- 关注 -->
+        <div class="layui-tab-item">
+            <form class="layui-form layui-form-pane" lay-filter="followSearch">
+                <div class="layui-form-item acgo-search-row">
+                    <div class="layui-inline"><label class="layui-form-label">用户ID</label><div class="layui-input-inline"><input type="text" name="uid" class="layui-input"></div></div>
+                    <div class="layui-inline"><button class="layui-btn" lay-submit lay-filter="followSearchBtn">搜索</button><button type="reset" class="layui-btn layui-btn-primary">重置</button></div>
+                </div>
+            </form>
+            <table id="followTable" lay-filter="followTable"></table>
+        </div>
+    </div>
+</div>
+{/block}
+
+{block name="script"}
+<script>
+layui.use(['table', 'form', 'layer', 'element'], function () {
+    var table = layui.table, form = layui.form, layer = layui.layer, $ = layui.jquery, element = layui.element;
+
+    var FIND_STATUS = {0: '<span class="layui-badge layui-bg-green">寻找中</span>', 1: '<span class="layui-badge layui-bg-blue">已配对</span>', 2: '<span class="layui-badge layui-bg-gray">已停止</span>'};
+    var BIND_STATUS = {1: '<span class="layui-badge layui-bg-blue">绑定中</span>', 0: '<span class="layui-badge layui-bg-gray">已解除</span>'};
+
+    function fmtTime(t) { if (!t) return ''; var d = new Date(parseInt(t) * 1000); var p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); }
+    function nick(v) { return v ? v : '<span style="color:#bbb">-</span>'; }
+
+    function reloadAll() {
+        table.reload('findTable'); table.reload('bindTable');
+        table.reload('blockTable'); table.reload('followTable');
+    }
+
+    function opAction(url, id, okText) {
+        layer.prompt({title: okText + '（请输入管理员密码）', formType: 1}, function (pass, index) {
+            layer.close(index);
+            $.ajax({
+                url: url, type: 'POST', data: {id: id, admin_password: pass},
+                success: function (r) {
+                    if (r.code === 0) { layer.msg(r.msg || '操作成功', {icon: 1}); reloadAll(); }
+                    else { layer.msg(r.msg || '操作失败', {icon: 2}); }
+                },
+                error: function () { layer.msg('请求失败', {icon: 2}); }
+            });
+        });
+    }
+
+    var findCols = [
+        {field: 'id', title: 'ID', width: 70},
+        {field: 'user_nickname', title: '用户', width: 120, templet: function (d) { return '<a href="javascript:;" class="acgo-uid" data-uid="' + d.user_id + '">' + nick(d.user_nickname) + '</a>'; }},
+        {field: 'planet_name', title: '星球', width: 120},
+        {field: 'target_text', title: '择偶条件', minWidth: 220},
+        {field: 'status', title: '状态', width: 90, templet: function (d) { return FIND_STATUS[d.status] || d.status; }},
+        {field: 'matched_nickname', title: '配对对象', width: 120, templet: function (d) { return nick(d.matched_nickname); }},
+        {field: 'free_used_count', title: '免费次数', width: 90},
+        {field: 'free_stat_date', title: '次数日期', width: 120},
+        {field: 'create_time', title: '创建时间', width: 170, templet: function (d) { return fmtTime(d.create_time); }},
+        {title: '操作', width: 160, fixed: 'right', templet: function (d) {
+            var h = '';
+            if (d.status == 0) h += '<a class="layui-btn layui-btn-xs" lay-event="stop">停止</a>';
+            h += '<a class="layui-btn layui-btn-danger layui-btn-xs" lay-event="del">删除</a>';
+            return h;
+        }}
+    ];
+
+    table.render({
+        elem: '#findTable', url: '/social/findList', page: true, limits: [15, 30, 50], limit: 15,
+        cols: [findCols],
+        response: {statusCode: 0}, parseData: function (r) { return {code: r.code, msg: r.msg, count: r.count, data: r.data}; }
+    });
+
+    table.render({
+        elem: '#bindTable', url: '/social/bindList', page: true, limits: [15, 30, 50], limit: 15,
+        cols: [[
+            {field: 'id', title: 'ID', width: 70},
+            {field: 'a_nick', title: '用户A', width: 120, templet: function (d) { return nick(d.a_nick); }},
+            {field: 'b_nick', title: '用户B', width: 120, templet: function (d) { return nick(d.b_nick); }},
+            {field: 'planet_name', title: '星球', width: 120},
+            {field: 'status', title: '状态', width: 90, templet: function (d) { return BIND_STATUS[d.status] || d.status; }},
+            {field: 'create_time', title: '创建时间', width: 170, templet: function (d) { return fmtTime(d.create_time); }},
+            {title: '操作', width: 170, fixed: 'right', templet: function (d) {
+                var h = '';
+                if (d.status == 1) h += '<a class="layui-btn layui-btn-xs" lay-event="unbind">解除</a>';
+                h += '<a class="layui-btn layui-btn-danger layui-btn-xs" lay-event="del">删除</a>';
+                return h;
+            }}
+        ]],
+        response: {statusCode: 0}, parseData: function (r) { return {code: r.code, msg: r.msg, count: r.count, data: r.data}; }
+    });
+
+    table.render({
+        elem: '#blockTable', url: '/social/blockList', page: true, limits: [15, 30, 50], limit: 15,
+        cols: [[
+            {field: 'id', title: 'ID', width: 70},
+            {field: 'blocker_nick', title: '拉黑者', width: 130, templet: function (d) { return nick(d.blocker_nick); }},
+            {field: 'blocked_nick', title: '被拉黑', width: 130, templet: function (d) { return nick(d.blocked_nick); }},
+            {field: 'create_time', title: '创建时间', width: 170, templet: function (d) { return fmtTime(d.create_time); }},
+            {title: '操作', width: 110, fixed: 'right', templet: function (d) { return '<a class="layui-btn layui-btn-danger layui-btn-xs" lay-event="del">解除</a>'; }}
+        ]],
+        response: {statusCode: 0}, parseData: function (r) { return {code: r.code, msg: r.msg, count: r.count, data: r.data}; }
+    });
+
+    table.render({
+        elem: '#followTable', url: '/social/followList', page: true, limits: [15, 30, 50], limit: 15,
+        cols: [[
+            {field: 'id', title: 'ID', width: 70},
+            {field: 'follower_nick', title: '关注者', width: 130, templet: function (d) { return nick(d.follower_nick); }},
+            {field: 'following_nick', title: '被关注', width: 130, templet: function (d) { return nick(d.following_nick); }},
+            {field: 'create_time', title: '创建时间', width: 170, templet: function (d) { return fmtTime(d.create_time); }},
+            {title: '操作', width: 110, fixed: 'right', templet: function (d) { return '<a class="layui-btn layui-btn-danger layui-btn-xs" lay-event="del">取消关注</a>'; }}
+        ]],
+        response: {statusCode: 0}, parseData: function (r) { return {code: r.code, msg: r.msg, count: r.count, data: r.data}; }
+    });
+
+    form.on('submit(findSearchBtn)', function (d) { table.reload('findTable', {where: d.field, page: {curr: 1}}); return false; });
+    form.on('submit(bindSearchBtn)', function (d) { table.reload('bindTable', {where: d.field, page: {curr: 1}}); return false; });
+    form.on('submit(blockSearchBtn)', function (d) { table.reload('blockTable', {where: d.field, page: {curr: 1}}); return false; });
+    form.on('submit(followSearchBtn)', function (d) { table.reload('followTable', {where: d.field, page: {curr: 1}}); return false; });
+
+    table.on('tool(findTable)', function (obj) {
+        if (obj.event === 'stop') opAction('/social/stopFind', obj.data.id, '停止寻找');
+        if (obj.event === 'del') opAction('/social/delFind', obj.data.id, '删除记录');
+    });
+    table.on('tool(bindTable)', function (obj) {
+        if (obj.event === 'unbind') opAction('/social/unbind', obj.data.id, '解除绑定');
+        if (obj.event === 'del') opAction('/social/delBind', obj.data.id, '删除绑定');
+    });
+    table.on('tool(blockTable)', function (obj) { if (obj.event === 'del') opAction('/social/delBlock', obj.data.id, '解除黑名单'); });
+    table.on('tool(followTable)', function (obj) { if (obj.event === 'del') opAction('/social/delFollow', obj.data.id, '取消关注'); });
+});
+</script>
+{/block}

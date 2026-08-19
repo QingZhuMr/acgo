@@ -222,7 +222,8 @@ class Planet extends BaseController
     /**
      * 保存星球寻人配置（业务接口）
      * POST：id、enable_find(0/1)、find_fields(JSON 数组)、
-     *      force_face_auth/force_edu_auth/force_asset_auth(0/1)
+     *      force_face_auth/force_edu_auth/force_asset_auth(0/1)、
+     *      match_cost(单次匹配费用,熊爪,0=未配置回落默认)、free_match_count(每日免费次数,0=无)
      *
      * find_fields 可选值（我的资料字段）：gender/age/income_range/personality/city/face_score/edu_level
      * 性别与年龄为默认必填项（后台可勾选，保存时强制并入）。
@@ -240,6 +241,16 @@ class Planet extends BaseController
 
         $enableFind = (int) $this->request->post('enable_find', 0) === 1 ? 1 : 0;
 
+        // 付费 / 免费次数配置（星球寻人配对；未传则保留原值，向后兼容旧后台表单）
+        $matchCost = (int) $this->request->post('match_cost', -1);
+        $freeMatchCount = (int) $this->request->post('free_match_count', -1);
+        if ($matchCost < -1) {
+            return json(['code' => 1, 'msg' => '单次匹配费用不能为负']);
+        }
+        if ($freeMatchCount < -1) {
+            return json(['code' => 1, 'msg' => '每日免费次数不能为负']);
+        }
+
         $fieldsRaw = (string) $this->request->post('find_fields', '[]');
         $fields = json_decode($fieldsRaw, true);
         if (!is_array($fields)) {
@@ -255,17 +266,27 @@ class Planet extends BaseController
             $fields[] = 'age';
         }
 
-        Db::name('planet')->where('id', $id)->update([
+        $update = [
             'enable_find'      => $enableFind,
             'find_fields'      => json_encode($fields, JSON_UNESCAPED_UNICODE),
             'force_face_auth'  => (int) $this->request->post('force_face_auth', 0) === 1 ? 1 : 0,
             'force_edu_auth'   => (int) $this->request->post('force_edu_auth', 0) === 1 ? 1 : 0,
             'force_asset_auth' => (int) $this->request->post('force_asset_auth', 0) === 1 ? 1 : 0,
             'update_time'      => time(),
-        ]);
+        ];
+        // 仅在后台表单传了该字段时才更新（保留原值，避免旧表单清空自定义配置）
+        if ($matchCost >= 0) {
+            $update['match_cost'] = $matchCost;
+        }
+        if ($freeMatchCount >= 0) {
+            $update['free_match_count'] = $freeMatchCount;
+        }
+
+        Db::name('planet')->where('id', $id)->update($update);
 
         $this->log('planet_find_config', '保存星球寻人配置 id=' . $id . ' 名称=' . $row['name']
-            . ' enable_find=' . $enableFind . ' fields=' . json_encode($fields, JSON_UNESCAPED_UNICODE));
+            . ' enable_find=' . $enableFind . ' fields=' . json_encode($fields, JSON_UNESCAPED_UNICODE)
+            . ' match_cost=' . $matchCost . ' free_match_count=' . $freeMatchCount);
         return json(['code' => 0, 'msg' => '保存成功']);
     }
 

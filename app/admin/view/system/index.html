@@ -236,7 +236,7 @@ layui.use(['form', 'layer'], function () {
             }
         }, 'json');
     }
-    $('#btnAddWord').on('click', addWord);
+    $(document).on('click', '#btnAddWord', addWord);
     $('#customWordInput').on('keydown', function (e) {
         if (e.keyCode === 13) { addWord(); }
     });
@@ -258,7 +258,7 @@ layui.use(['form', 'layer'], function () {
     });
 
     // 更新网络词库
-    $('#btnUpdateLexicon').on('click', function () {
+    $(document).on('click', '#btnUpdateLexicon', function () {
         var btn = $(this);
         btn.attr('disabled', true).text('正在更新，请稍候…');
         $.post('/system/updateLexicon', function (res) {

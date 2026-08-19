@@ -90,6 +90,8 @@ class User extends BaseController
 
             // 关联钱包数据（双轨制货币：人民币 + 熊爪）
             $item['wallet'] = $this->getWalletInfo((int) $item['id']);
+            // 配对关系与状态（寻人配对功能）
+            $item['pairing'] = $this->getPairingInfo((int) $item['id']);
         }
         unset($item);
 
@@ -99,6 +101,35 @@ class User extends BaseController
             'count' => $total,
             'data'  => $list,
         ]);
+    }
+
+    /**
+     * 获取用户配对关系与状态（寻人配对功能）
+     * status: 0=未寻找 1=寻找中 2=已配对(或曾配对)
+     */
+    protected function getPairingInfo(int $userId): array
+    {
+        $find = Db::name('user_find')
+            ->where('user_id', $userId)
+            ->order('id', 'DESC')
+            ->find();
+        if (!$find) {
+            return ['status' => 0, 'status_text' => '未寻找', 'partner' => ''];
+        }
+        $status = (int) $find['status'];
+        if ($status === 0) {
+            return ['status' => 1, 'status_text' => '寻找中', 'partner' => ''];
+        }
+        $partner = '';
+        if (!empty($find['matched_uid'])) {
+            $p = Db::name('user')->where('id', (int) $find['matched_uid'])->field('nickname')->find();
+            $partner = $p ? (string) $p['nickname'] : '';
+        }
+        return [
+            'status'      => 2,
+            'status_text' => $status === 1 ? '已配对' : '曾配对(已停止)',
+            'partner'     => $partner,
+        ];
     }
 
     /**

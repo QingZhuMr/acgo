@@ -53,6 +53,10 @@ class Find extends BaseController
             return json(['code' => 1, 'msg' => '星球不存在']);
         }
 
+        // 费用与免费次数（供前端展示与发起时扣费判定复用）
+        $today = date('Y-m-d');
+        $costInfo = $this->resolveFindCost($planet, $uid, $today);
+
         return json([
             'code' => 0,
             'msg'  => 'ok',
@@ -68,6 +72,12 @@ class Find extends BaseController
                 'my_find'          => $this->myFind($uid),
                 'my_bind'          => $this->myBind($uid),
                 'auth'             => $this->myAuth($uid),
+                // 付费 / 免费次数相关（星球寻人配对）
+                'balance_paw'      => $this->myPaw($uid),
+                'match_cost'       => $costInfo['cost'],
+                'free_match_count' => $costInfo['free_limit'],
+                'free_remaining'   => $costInfo['free_remaining'],
+                'cost_notice'      => (string) $this->getConfigValue('find_cost_notice', ''),
             ],
         ]);
     }
@@ -130,34 +140,72 @@ class Find extends BaseController
         }
 
         $now = time();
-        $findId = Db::transaction(function () use ($uid, $planetId, $profile, $target, $now) {
-            // 保存/更新我的资料（首填后自动复用）
-            $old = Db::name('user_find_profile')->where('user_id', $uid)->find();
-            $profile['update_time'] = $now;
-            if ($old) {
-                Db::name('user_find_profile')->where('id', $old['id'])->update($profile);
-            } else {
-                $profile['user_id'] = $uid;
-                $profile['create_time'] = $now;
-                Db::name('user_find_profile')->insert($profile);
-            }
+        $today = date('Y-m-d');
+        $costInfo = $this->resolveFindCost($planet, $uid, $today);
+        $cost = $costInfo['cost'];
+        $freeLimit = $costInfo['free_limit'];
 
-            // 停止我旧的寻找记录（同一账户同时只能在一个星球寻找）
-            Db::name('user_find')
-                ->where('user_id', $uid)
-                ->where('status', 0)
-                ->update(['status' => 2, 'stop_time' => $now]);
+        try {
+            $result = Db::transaction(function () use ($uid, $planetId, $profile, $target, $now, $today, $cost, $freeLimit) {
+                // 免费次数判定（每用户每星球每日，跨天由 free_stat_date 重置）
+                $usedFree = (int) Db::name('user_find')
+                    ->where('user_id', $uid)
+                    ->where('planet_id', $planetId)
+                    ->where('free_stat_date', $today)
+                    ->sum('free_used_count');
+                $isFree = ($freeLimit > 0 && $usedFree < $freeLimit);
+                $freeUsedThis = $isFree ? 1 : 0;
 
-            // 插入新寻找记录
-            return Db::name('user_find')->insertGetId([
-                'user_id'     => $uid,
-                'planet_id'   => $planetId,
-                'target'      => json_encode($target, JSON_UNESCAPED_UNICODE),
-                'status'      => 0,
-                'matched_uid' => 0,
-                'create_time' => $now,
-            ]);
-        });
+                // 付费：超出免费次数且单次费用 > 0 → 扣熊爪
+                if (!$isFree && $cost > 0) {
+                    $aff = Db::name('wallet')
+                        ->where('uid', $uid)
+                        ->where('balance_paw', '>=', $cost)
+                        ->dec('balance_paw', $cost)
+                        ->update(['update_time' => $now]);
+                    if ($aff < 1) {
+                        throw new \Exception('熊爪不足');
+                    }
+                }
+
+                // 保存/更新我的资料（首填后自动复用）
+                $old = Db::name('user_find_profile')->where('user_id', $uid)->find();
+                $profile['update_time'] = $now;
+                if ($old) {
+                    Db::name('user_find_profile')->where('id', $old['id'])->update($profile);
+                } else {
+                    $profile['user_id'] = $uid;
+                    $profile['create_time'] = $now;
+                    Db::name('user_find_profile')->insert($profile);
+                }
+
+                // 停止我旧的寻找记录（同一账户同时只能在一个星球寻找）
+                Db::name('user_find')
+                    ->where('user_id', $uid)
+                    ->where('status', 0)
+                    ->update(['status' => 2, 'stop_time' => $now]);
+
+                // 插入新寻找记录（携带免费次数记录字段）
+                $findId = Db::name('user_find')->insertGetId([
+                    'user_id'         => $uid,
+                    'planet_id'       => $planetId,
+                    'target'          => json_encode($target, JSON_UNESCAPED_UNICODE),
+                    'status'          => 0,
+                    'matched_uid'     => 0,
+                    'create_time'     => $now,
+                    'free_used_count' => $freeUsedThis,
+                    'free_stat_date'  => $today,
+                ]);
+                return ['find_id' => $findId, 'is_free' => $isFree, 'cost' => $cost];
+            });
+        } catch (\Throwable $e) {
+            $msg = $e->getMessage() === '熊爪不足' ? '熊爪不足，无法发起寻找' : '发起失败，请稍后重试';
+            return json(['code' => 1, 'msg' => $msg]);
+        }
+
+        $findId = $result['find_id'];
+        $isFree = $result['is_free'];
+        $cost   = $result['cost'];
 
         // 尝试立即匹配
         $matched = $this->tryMatch($findId);
@@ -174,7 +222,11 @@ class Find extends BaseController
             ]);
         }
 
-        return json(['code' => 0, 'msg' => '已开始寻找', 'data' => ['status' => 0, 'find_id' => $findId]]);
+        return json([
+            'code' => 0,
+            'msg'  => $isFree ? '已开始寻找（本次免费）' : ('已开始寻找（消耗 ' . $cost . ' 熊爪）'),
+            'data' => ['status' => 0, 'find_id' => $findId, 'is_free' => $isFree, 'cost' => $cost],
+        ]);
     }
 
     /**
@@ -254,7 +306,7 @@ class Find extends BaseController
 
         // 通知对方解除绑定（type=7 解除绑定）
         $me = UserInfoCache::get($uid);
-        Db::name('notification')->insert([
+        $nid = Db::name('notification')->insertGetId([
             'user_id'         => $targetUid,
             'from_uid'        => $uid,
             'post_id'         => 0,
@@ -270,6 +322,7 @@ class Find extends BaseController
             [
                 'type'         => 'match_notice',
                 'notification' => [
+                    'id'            => (int) $nid,
                     'from_uid'      => $uid,
                     'from_nickname' => (string) ($me['nickname'] ?? ''),
                     'from_avatar'   => (string) ($me['avatar'] ?? ''),
@@ -346,6 +399,49 @@ class Find extends BaseController
         ];
     }
 
+    /**
+     * 解析某星球发起一次匹配的费用与免费次数规则
+     * - 星球未配置付费相关（match_cost 与 free_match_count 同时为 0）→ 回落全局 config 默认
+     * - 星球已配置：match_cost>0 用星球费用；free_match_count>0 用星球每日免费次数（0 表示无免费）
+     */
+    protected function resolveFindCost(array $planet, int $uid, string $today): array
+    {
+        $planetCost = (int) ($planet['match_cost'] ?? 0);
+        $planetFree = (int) ($planet['free_match_count'] ?? 0);
+        if ($planetCost === 0 && $planetFree === 0) {
+            $cost = (int) $this->getConfigValue('find_default_match_cost', 0);
+            $freeLimit = (int) $this->getConfigValue('find_default_free_match_count', 0);
+        } else {
+            $cost = $planetCost;
+            $freeLimit = $planetFree;
+        }
+        $usedFree = (int) Db::name('user_find')
+            ->where('user_id', $uid)
+            ->where('planet_id', (int) $planet['id'])
+            ->where('free_stat_date', $today)
+            ->sum('free_used_count');
+        return [
+            'cost'           => $cost,
+            'free_limit'     => $freeLimit,
+            'used_free'      => $usedFree,
+            'free_remaining' => max(0, $freeLimit - $usedFree),
+        ];
+    }
+
+    /** 读取运营配置项（string），不存在返回默认值 */
+    protected function getConfigValue(string $name, $default = '')
+    {
+        $val = Db::name('config')->where('name', $name)->value('value');
+        return $val === null ? $default : $val;
+    }
+
+    /** 当前用户的熊爪余额（整数积分），无钱包记录返回 0 */
+    protected function myPaw(int $uid): int
+    {
+        $w = Db::name('wallet')->where('uid', $uid)->field('balance_paw')->find();
+        return $w ? (int) $w['balance_paw'] : 0;
+    }
+
     protected function myBind(int $uid): ?array
     {
         $bind = Db::name('user_bind')
@@ -359,11 +455,13 @@ class Find extends BaseController
         }
         $partnerUid = ((int) $bind['user_a'] === $uid) ? (int) $bind['user_b'] : (int) $bind['user_a'];
         $partner = UserInfoCache::get($partnerUid);
+        $planet = Db::name('planet')->where('id', (int) $bind['planet_id'])->field('name')->find();
         return [
             'uid'         => $partnerUid,
             'nickname'    => (string) ($partner['nickname'] ?? ''),
             'avatar'      => (string) ($partner['avatar'] ?? ''),
             'planet_id'   => (int) $bind['planet_id'],
+            'planet_name' => (string) ($planet['name'] ?? ''),
             'create_time' => (int) $bind['create_time'],
         ];
     }
@@ -636,17 +734,25 @@ class Find extends BaseController
         $planet = Db::name('planet')->where('id', $planetId)->field('name')->find();
         $planetName = (string) ($planet['name'] ?? '');
 
-        $this->notifyMatch($uidB, $uidA, (string) ($userA['nickname'] ?? ''), (string) ($userA['avatar'] ?? ''), $planetName, $now);
-        $this->notifyMatch($uidA, $uidB, (string) ($userB['nickname'] ?? ''), (string) ($userB['avatar'] ?? ''), $planetName, $now);
+        $profileA = $this->myProfile($uidA);
+        $profileB = $this->myProfile($uidB);
+        $this->notifyMatch($uidB, $uidA, (string) ($userA['nickname'] ?? ''), (string) ($userA['avatar'] ?? ''), $profileA, $planetId, $planetName, $now);
+        $this->notifyMatch($uidA, $uidB, (string) ($userB['nickname'] ?? ''), (string) ($userB['avatar'] ?? ''), $profileB, $planetId, $planetName, $now);
 
         return [
             'uid'  => $uidB,
-            'user' => ['nickname' => (string) ($userB['nickname'] ?? ''), 'avatar' => (string) ($userB['avatar'] ?? '')],
+            'user' => [
+                'uid'     => $uidB,
+                'nickname' => (string) ($userB['nickname'] ?? ''),
+                'avatar'  => (string) ($userB['avatar'] ?? ''),
+                'profile' => $profileB,
+            ],
             'bind' => [
                 'uid'         => $uidB,
                 'nickname'    => (string) ($userB['nickname'] ?? ''),
                 'avatar'      => (string) ($userB['avatar'] ?? ''),
                 'planet_id'   => $planetId,
+                'planet_name' => $planetName,
                 'create_time' => $now,
             ],
         ];
@@ -667,9 +773,9 @@ class Find extends BaseController
         }
     }
 
-    protected function notifyMatch(int $toUid, int $fromUid, string $fromName, string $fromAvatar, string $planetName, int $now): void
+    protected function notifyMatch(int $toUid, int $fromUid, string $fromName, string $fromAvatar, ?array $fromProfile, int $planetId, string $planetName, int $now): void
     {
-        Db::name('notification')->insert([
+        $nid = Db::name('notification')->insertGetId([
             'user_id'         => $toUid,
             'from_uid'        => $fromUid,
             'post_id'         => 0,
@@ -685,9 +791,13 @@ class Find extends BaseController
             [
                 'type'         => 'match_notice',
                 'notification' => [
+                    'id'            => (int) $nid,
                     'from_uid'      => $fromUid,
                     'from_nickname' => $fromName,
                     'from_avatar'   => $fromAvatar,
+                    'from_profile'  => $fromProfile ?? new \stdClass(),
+                    'planet_id'     => $planetId,
+                    'planet_name'   => $planetName,
                     'type'          => 6,
                     'create_time'   => $now,
                 ],

@@ -1,0 +1,104 @@
+{extend name="layout" /}
+
+{block name="title"}表情包管理{/block}
+
+{block name="style"}
+<style>
+    .acgo-uid { color: #1E9FFF; cursor: pointer; }
+</style>
+{/block}
+
+{block name="content"}
+<div class="layui-fluid">
+    <form class="layui-form layui-form-pane" lay-filter="searchForm" style="margin-top:12px;">
+        <div class="layui-form-item acgo-search-row">
+            <div class="layui-inline"><label class="layui-form-label">上传者ID</label><div class="layui-input-inline"><input type="text" name="uid" class="layui-input"></div></div>
+            <div class="layui-inline"><label class="layui-form-label">状态</label><div class="layui-input-inline"><select name="status"><option value="">全部</option><option value="1">上架</option><option value="0">下架</option></select></div></div>
+            <div class="layui-inline"><label class="layui-form-label">文件名</label><div class="layui-input-inline"><input type="text" name="keyword" class="layui-input"></div></div>
+            <div class="layui-inline"><button class="layui-btn" lay-submit lay-filter="searchBtn">搜索</button><button type="reset" class="layui-btn layui-btn-primary">重置</button></div>
+            <div class="layui-inline"><button type="button" class="layui-btn layui-btn-warm" id="btnUpload"><i class="fa fa-upload"></i> 上传表情</button></div>
+        </div>
+    </form>
+    <table id="stickerTable" lay-filter="stickerTable"></table>
+</div>
+<input type="file" id="stickerFile" accept="image/*" style="display:none">
+{/block}
+
+{block name="script"}
+<script>
+layui.use(['table', 'form', 'layer'], function () {
+    var table = layui.table, form = layui.form, layer = layui.layer, $ = layui.jquery;
+
+    var STATUS_TEXT = {1: '<span class="layui-badge layui-bg-green">上架</span>', 0: '<span class="layui-badge layui-bg-gray">下架</span>'};
+    function fmtTime(t) { if (!t) return ''; var d = new Date(parseInt(t) * 1000); var p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); }
+    function nick(v) { return v ? v : '<span style="color:#bbb">平台</span>'; }
+
+    function reload() { table.reload('stickerTable'); }
+
+    function opAction(url, id, status, okText) {
+        layer.prompt({title: okText + '（请输入管理员密码）', formType: 1}, function (pass, index) {
+            layer.close(index);
+            $.ajax({ url: url, type: 'POST', data: {id: id, status: status, admin_password: pass}, success: function (r) {
+                if (r.code === 0) { layer.msg(r.msg || '操作成功', {icon: 1}); reload(); }
+                else { layer.msg(r.msg || '操作失败', {icon: 2}); }
+            }, error: function () { layer.msg('请求失败', {icon: 2}); } });
+        });
+    }
+
+    table.render({
+        elem: '#stickerTable', url: '/sticker/getList', page: true, limits: [15, 30, 50], limit: 15,
+        cols: [[
+            {field: 'id', title: 'ID', width: 70},
+            {field: 'preview', title: '预览', width: 80, templet: function (d) { return '<img src="' + d.url + '" style="width:42px;height:42px;object-fit:cover;border-radius:6px;" onerror="this.src=\'/static/common/img/placeholder.png\'">'; }},
+            {field: 'url', title: '地址', minWidth: 240, templet: function (d) { return '<a href="' + d.url + '" target="_blank" style="color:#1E9FFF">' + d.url + '</a>'; }},
+            {field: 'user_nickname', title: '上传者', width: 120, templet: function (d) { return nick(d.user_nickname); }},
+            {field: 'w_h', title: '尺寸', width: 100, templet: function (d) { return d.width + '×' + d.height; }},
+            {field: 'size', title: '大小', width: 100, templet: function (d) { return (d.size / 1024).toFixed(1) + ' KB'; }},
+            {field: 'status', title: '状态', width: 80, templet: function (d) { return STATUS_TEXT[d.status] || d.status; }},
+            {field: 'create_time', title: '创建时间', width: 170, templet: function (d) { return fmtTime(d.create_time); }},
+            {title: '操作', width: 150, fixed: 'right', templet: function (d) {
+                var h = '';
+                if (d.status == 1) h += '<a class="layui-btn layui-btn-xs" lay-event="down">下架</a>';
+                else h += '<a class="layui-btn layui-btn-xs layui-btn-normal" lay-event="up">上架</a>';
+                h += '<a class="layui-btn layui-btn-danger layui-btn-xs" lay-event="del">删除</a>';
+                return h;
+            }}
+        ]],
+        response: {statusCode: 0}, parseData: function (r) { return {code: r.code, msg: r.msg, count: r.count, data: r.data}; }
+    });
+
+    form.on('submit(searchBtn)', function (d) { table.reload('stickerTable', {where: d.field, page: {curr: 1}}); return false; });
+
+    // 上传：先输密码，再选文件
+    var uploadedPwd = '';
+    $(document).on('click', '#btnUpload', function () {
+        layer.prompt({title: '请输入管理员密码后上传', formType: 1}, function (pass, i) {
+            uploadedPwd = pass; layer.close(i);
+            $('#stickerFile').click();
+        });
+    });
+    $(document).on('change', '#stickerFile', function () {
+        var f = this.files[0];
+        if (!f) return;
+        var fd = new FormData();
+        fd.append('file', f);
+        fd.append('admin_password', uploadedPwd);
+        $.ajax({
+            url: '/sticker/add', type: 'POST', data: fd, processData: false, contentType: false,
+            success: function (r) {
+                if (r.code === 0) { layer.msg('上传成功', {icon: 1}); reload(); }
+                else { layer.msg(r.msg || '上传失败', {icon: 2}); }
+            },
+            error: function () { layer.msg('请求失败', {icon: 2}); }
+        });
+        this.value = '';
+    });
+
+    table.on('tool(stickerTable)', function (obj) {
+        if (obj.event === 'down') opAction('/sticker/setStatus', obj.data.id, 0, '下架表情');
+        if (obj.event === 'up') opAction('/sticker/setStatus', obj.data.id, 1, '上架表情');
+        if (obj.event === 'del') opAction('/sticker/del', obj.data.id, 0, '删除表情');
+    });
+});
+</script>
+{/block}

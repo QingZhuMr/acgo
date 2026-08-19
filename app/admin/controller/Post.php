@@ -222,6 +222,116 @@ class Post extends BaseController
     }
 
     /**
+     * 批量删除帖子（软删，需管理员密码二次验证）
+     * POST：ids（逗号分隔或数组）、admin_password
+     */
+    public function batchDelete()
+    {
+        $adminId = (int) Session::get('admin_id', 0);
+        $admin   = Db::name('admin')->where('id', $adminId)->find();
+        if (!$admin) {
+            return json(['code' => 1, 'msg' => '管理员不存在，请重新登录']);
+        }
+        if (0 === (int) $admin['status']) {
+            return json(['code' => 1, 'msg' => '管理员已被禁用']);
+        }
+
+        $idsInput = $this->request->post('ids', '');
+        $adminPwd = (string) $this->request->post('admin_password', '');
+        $ids      = [];
+        if (is_array($idsInput)) {
+            foreach ($idsInput as $v) {
+                $v = (int) $v;
+                if ($v > 0) {
+                    $ids[] = $v;
+                }
+            }
+        } else {
+            foreach (explode(',', (string) $idsInput) as $v) {
+                $v = (int) $v;
+                if ($v > 0) {
+                    $ids[] = $v;
+                }
+            }
+        }
+        $ids = array_values(array_unique($ids));
+        if (empty($ids)) {
+            return json(['code' => 1, 'msg' => '请选择要删除的帖子']);
+        }
+        if ('' === $adminPwd) {
+            return json(['code' => 1, 'msg' => '请输入管理员密码确认操作']);
+        }
+        if (!Password::verify($adminPwd, $admin['password'])) {
+            return json(['code' => 1, 'msg' => '管理员密码错误']);
+        }
+
+        $count = Db::name('post')->where('id', 'in', $ids)->update(['status' => 0, 'update_time' => time()]);
+        AdminLog::write(
+            $adminId,
+            $admin['username'],
+            'post_batch_delete',
+            $this->request->ip(),
+            '批量删除帖子 ' . count($ids) . ' 条（ids: ' . implode(',', $ids) . '）'
+        );
+        return json(['code' => 0, 'msg' => '已删除 ' . $count . ' 条帖子']);
+    }
+
+    /**
+     * 恢复已删除帖子（status 0 → 1，需管理员密码二次验证）
+     * POST：ids（逗号分隔或数组）或 post_id
+     */
+    public function restore()
+    {
+        $adminId = (int) Session::get('admin_id', 0);
+        $admin   = Db::name('admin')->where('id', $adminId)->find();
+        if (!$admin) {
+            return json(['code' => 1, 'msg' => '管理员不存在，请重新登录']);
+        }
+        if (0 === (int) $admin['status']) {
+            return json(['code' => 1, 'msg' => '管理员已被禁用']);
+        }
+
+        $idsInput = $this->request->post('ids', $this->request->post('post_id', ''));
+        $adminPwd = (string) $this->request->post('admin_password', '');
+        $ids      = [];
+        if (is_array($idsInput)) {
+            foreach ($idsInput as $v) {
+                $v = (int) $v;
+                if ($v > 0) {
+                    $ids[] = $v;
+                }
+            }
+        } else {
+            foreach (explode(',', (string) $idsInput) as $v) {
+                $v = (int) $v;
+                if ($v > 0) {
+                    $ids[] = $v;
+                }
+            }
+        }
+        $ids = array_values(array_unique($ids));
+        if (empty($ids)) {
+            return json(['code' => 1, 'msg' => '请选择要恢复的帖子']);
+        }
+        if ('' === $adminPwd) {
+            return json(['code' => 1, 'msg' => '请输入管理员密码确认操作']);
+        }
+        if (!Password::verify($adminPwd, $admin['password'])) {
+            return json(['code' => 1, 'msg' => '管理员密码错误']);
+        }
+
+        $count = Db::name('post')->where('id', 'in', $ids)->update(['status' => 1, 'update_time' => time()]);
+        AdminLog::write(
+            $adminId,
+            $admin['username'],
+            'post_restore',
+            $this->request->ip(),
+            '恢复帖子 ' . count($ids) . ' 条（ids: ' . implode(',', $ids) . '）'
+        );
+        return json(['code' => 0, 'msg' => '已恢复 ' . $count . ' 条帖子']);
+    }
+
+    /**
      * 删除评论 / 楼中楼（软删，需管理员密码二次验证）
      * POST：comment_id、admin_password
      * 删除后自动扣减帖子评论数（含楼中楼）；删顶层评论级联删其楼中楼。

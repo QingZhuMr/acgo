@@ -40,7 +40,7 @@ class CheckLogin
 
         // 未登录
         if (!Session::has('admin_id')) {
-            return $this->redirectLogin();
+            return $this->redirectLogin($request);
         }
 
         // 根据 admin_id 从数据库实时查询
@@ -50,7 +50,7 @@ class CheckLogin
         // 账号不存在或已禁用
         if (!$admin || 0 == $admin['status']) {
             Session::clear();
-            return $this->redirectLogin();
+            return $this->redirectLogin($request);
         }
 
         // 异地登录检测：比对 session 里的 token 与数据库最新 token
@@ -68,7 +68,7 @@ class CheckLogin
                 'create_time' => time(),
             ]);
             Session::clear();
-            return $this->redirectLogin('kick');
+            return $this->redirectLogin($request, 'kick');
         }
 
         // 会话有效期控制：登录 6 小时有效，每次操作续期 +1 小时
@@ -78,7 +78,7 @@ class CheckLogin
         if ($expireAt > 0 && $now >= $expireAt) {
             // 超过有效期未续期：清会话踢回登录页
             Session::clear();
-            return $this->redirectLogin();
+            return $this->redirectLogin($request);
         }
 
         // 续期：距上次续期 ≥60 秒才算一次操作，过期点 +1 小时
@@ -96,8 +96,15 @@ class CheckLogin
     /**
      * 重定向到登录页
      */
-    protected function redirectLogin(string $reason = ''): Response
+    protected function redirectLogin(Request $request, string $reason = ''): Response
     {
+        // AJAX / JSON 请求：返回未登录 JSON，由前端全局拦截器（admin-core.js）触发
+        // 顶层窗口整页跳转登录页（解决「掉线后登录框出现在 iframe 内容区」的问题）
+        if ($request->isAjax() || $request->isJson()
+            || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')) {
+            $msg = $reason === 'kick' ? '账号已在其他设备登录，请重新登录' : '登录已失效，请重新登录';
+            return json(['code' => -9, 'msg' => $msg, 'need_login' => true]);
+        }
         $url = '/login/index';
         if ('kick' === $reason) {
             $url = '/login/index?kick=1';

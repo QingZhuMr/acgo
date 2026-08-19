@@ -55,6 +55,9 @@
             <button type="button" class="layui-btn search-btn" lay-submit lay-filter="search" title="搜索"><i class="fas fa-search"></i></button>
         </div>
     </form>
+    <div class="layui-inline" style="margin-left:8px;">
+        <button type="button" id="btnBatchDel" class="layui-btn layui-btn-danger"><i class="fas fa-trash"></i> 批量删除选中</button>
+    </div>
 </div>
 <div class="page-content">
     <table id="postTable" lay-filter="postTable"></table>
@@ -96,6 +99,7 @@ layui.use(['table', 'form', 'layer'], function () {
         autoSort: false,
         initSort: { field: 'id', type: 'desc' },
         cols: [[
+            { type: 'checkbox', fixed: 'left' },
             { field: 'id', title: 'ID', width: 70, align: 'center', sort: true },
             { field: 'user_id', title: 'UID', width: 70, align: 'center' },
             { field: 'nickname', title: '发帖人', minWidth: 120,
@@ -174,7 +178,11 @@ layui.use(['table', 'form', 'layer'], function () {
             var btns = '';
             btns += '<button type="button" class="op-act-btn" data-ev="view"><i class="fas fa-eye"></i> 预览</button>';
             btns += '<button type="button" class="op-act-btn" data-ev="heat"><i class="fas fa-fire"></i> 加热</button>';
-            btns += '<button type="button" class="op-act-btn danger" data-ev="del"><i class="fas fa-trash"></i> 删除</button>';
+            if (data.status === 0) {
+                btns += '<button type="button" class="op-act-btn" data-ev="restore"><i class="fas fa-undo"></i> 恢复</button>';
+            } else {
+                btns += '<button type="button" class="op-act-btn danger" data-ev="del"><i class="fas fa-trash"></i> 删除</button>';
+            }
             var html = '<div class="op-layer-target"><i class="fas fa-file-alt"></i> 操作对象：<b>帖子 #' + data.id + '</b></div>' +
                        '<div class="op-layer-body">' + btns + '</div>';
             var opsLayer = layer.open({
@@ -186,13 +194,14 @@ layui.use(['table', 'form', 'layer'], function () {
                 shade: 0.3,
                 shadeClose: true
             });
-            // 操作按钮点击（事件委托到弹窗内容）
-            $('.op-layer-body button').off('click').on('click', function () {
+            // 操作按钮点击（精确绑定到当前弹窗，避免重复打开后失效）
+            $('#layui-layer' + opsLayer + ' .op-layer-body button').off('click').on('click', function () {
                 var ev = $(this).attr('data-ev');
                 layer.close(opsLayer);
                 if (ev === 'view') openPreview(data.id);
                 else if (ev === 'heat') openHeat(data.id, data.heat);
                 else if (ev === 'del') openDelete(data.id);
+                else if (ev === 'restore') openRestore(data.id);
             });
         }
     });
@@ -369,6 +378,86 @@ layui.use(['table', 'form', 'layer'], function () {
             }
         });
     }
+
+    // ===== 恢复帖子（密码二次验证） =====
+    function openRestore(postId) {
+        layer.open({
+            type: 1,
+            title: '恢复帖子',
+            area: ['440px', 'auto'],
+            shade: 0.4,
+            shadeClose: false,
+            content: '<div style="padding:24px;">' +
+                '<div style="font-size:14px;color:var(--success,#52c41a);margin-bottom:16px;">恢复后该帖子将重新在广场展示（已删除 → 正常）。</div>' +
+                '<div style="font-size:13px;color:var(--text-body);margin-bottom:8px;">请输入管理员密码确认操作：</div>' +
+                '<input type="password" id="restorePwd" placeholder="管理员密码" class="layui-input">' +
+                '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">' +
+                    '<button type="button" class="layui-btn layui-btn-primary" id="restoreCancel">取消</button>' +
+                    '<button type="button" class="layui-btn" id="restoreSubmit">确认恢复</button>' +
+                '</div>' +
+            '</div>',
+            success: function (layero) {
+                layero.find('#restoreCancel').on('click', function () { layer.closeAll(); });
+                layero.find('#restoreSubmit').on('click', function () {
+                    var pwd = layero.find('#restorePwd').val();
+                    if (pwd === '') { layer.msg('请输入管理员密码', { icon: 2 }); return; }
+                    $.post('/post/restore', { post_id: postId, admin_password: pwd }, function (res) {
+                        if (res.code === 0) {
+                            layer.closeAll();
+                            layer.msg(res.msg, { icon: 1 });
+                            postTable.reload();
+                        } else {
+                            layer.msg(res.msg, { icon: 2 });
+                        }
+                    }, 'json');
+                });
+            }
+        });
+    }
+
+    // ===== 批量删除选中帖子（密码二次验证） =====
+    function openBatchDelete(ids) {
+        layer.open({
+            type: 1,
+            title: '批量删除帖子',
+            area: ['440px', 'auto'],
+            shade: 0.4,
+            shadeClose: false,
+            content: '<div style="padding:24px;">' +
+                '<div style="font-size:14px;color:var(--danger);margin-bottom:16px;">即将删除选中的 <b>' + ids.length + '</b> 条帖子（软删除），可在「已删除」筛选下恢复。</div>' +
+                '<div style="font-size:13px;color:var(--text-body);margin-bottom:8px;">请输入管理员密码确认操作：</div>' +
+                '<input type="password" id="batchPwd" placeholder="管理员密码" class="layui-input">' +
+                '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">' +
+                    '<button type="button" class="layui-btn layui-btn-primary" id="batchCancel">取消</button>' +
+                    '<button type="button" class="layui-btn layui-btn-danger" id="batchSubmit">确认删除</button>' +
+                '</div>' +
+            '</div>',
+            success: function (layero) {
+                layero.find('#batchCancel').on('click', function () { layer.closeAll(); });
+                layero.find('#batchSubmit').on('click', function () {
+                    var pwd = layero.find('#batchPwd').val();
+                    if (pwd === '') { layer.msg('请输入管理员密码', { icon: 2 }); return; }
+                    $.post('/post/batchDelete', { ids: ids.join(','), admin_password: pwd }, function (res) {
+                        if (res.code === 0) {
+                            layer.closeAll();
+                            layer.msg(res.msg, { icon: 1 });
+                            postTable.reload();
+                        } else {
+                            layer.msg(res.msg, { icon: 2 });
+                        }
+                    }, 'json');
+                });
+            }
+        });
+    }
+
+    // 批量删除按钮（全局事件委托：弹窗重建后仍有效，避免二次点击失效）
+    $(document).on('click', '#btnBatchDel', function () {
+        var check = table.checkStatus('postTable');
+        var ids = (check.data || []).map(function (r) { return r.id; });
+        if (ids.length === 0) { layer.msg('请先勾选要删除的帖子', { icon: 2 }); return; }
+        openBatchDelete(ids);
+    });
 });
 
 // ===== 删除评论（密码二次验证；供预览弹框内评论行调用） =====

@@ -847,7 +847,7 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | 编辑 | `/admin/planet/edit` | POST | `id`/`name`/`type`/`intro`/`sort`/`status`（种子不可修改） |
 | 删除 | `/admin/planet/delete` | POST | `id` |
 | 上下线 | `/admin/planet/toggle` | POST | `id`/`status` |
-| 寻找配置 | `/admin/planet/findConfig` | POST | `id`/`enable_find`（是否开放"开始寻找"）/`find_fields`（JSON 数组，参与匹配的字段）/`force_face_auth`、`force_edu_auth`、`force_asset_auth`（是否强制对应认证才可配对） |
+| 寻找配置 | `/admin/planet/findConfig` | POST | `id`/`enable_find`（是否开放"开始寻找"）/`find_fields`（JSON 数组，参与匹配的字段）/`force_face_auth`、`force_edu_auth`、`force_asset_auth`（是否强制对应认证才可配对）/`match_cost`（单次匹配费用，熊爪，0=未配置回落默认）/`free_match_count`（每日免费次数，0=无） |
 
 > 建表 SQL：`sql/planet.sql`；后台菜单「运营 → 星球管理」由同一 SQL 插入（按标题动态查找父级菜单，不硬编码 id）。
 
@@ -881,9 +881,16 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | auth | object | 我的认证状态 `{ face_status, edu_status, asset_status }`（1=已认证，2=未通过，0=未认证） |
 | profile | object \| null | 我的资料（`user_find_profile`，首填后自动复用）：`gender`、`age`、`income_range`、`personality`、`city`、`face_score`、`education` |
 | my_find | object \| null | 我正在寻找：`{ id, planet_id, status, update_time }`（status 0=寻找中 1=已配对） |
-| my_bind | object \| null | 我的绑定关系：`{ id, uid, nickname, avatar, planet_id, create_time }` |
+| my_bind | object \| null | 我的绑定关系：`{ id, uid, nickname, avatar, planet_id, planet_name, create_time }` |
+| balance_paw | int | 我当前的熊爪余额（用于发起寻找付费时校验/展示） |
+| match_cost | int | 本次发起寻找的**有效单次费用**（熊爪）：>0 表示付费，0 表示免费。星球 `match_cost`/`free_match_count` 均为 0 时回落 `config.find_default_match_cost` 默认值 |
+| free_match_count | int | 每用户每日免费次数上限（已回落 `config.find_default_free_match_count` 默认值） |
+| free_remaining | int | 今日剩余免费次数（`free_match_count` - 当日已用；≤0 时本次将扣 `match_cost` 熊爪） |
+| cost_notice | string | 费用规则说明文案（后台 `config.find_cost_notice` 配置），前端展示用 |
 
 **find_fields 元素**：`gender`（性别，必选）、`age`（年龄，必选）、`income_range`（月收入范围）、`personality`（性格）、`city`（是否只寻找同城）、`face_score`（颜值打分）、`education`（学历）。元素格式：`{ "key": "gender", "label": "性别", "required": 1 }`。
+
+> **费用规则（寻人配对付费）**：`planet` 表新增 `match_cost`（单次费用）、`free_match_count`（每用户每日免费次数），`config` 表新增 `find_default_match_cost`/`find_default_free_match_count`/`find_cost_notice` 作为星球未配置时的全局默认值。判定：`match_cost` 与 `free_match_count` 同时为 0 → 用全局默认；否则用星球值（`match_cost=0` 表示该星球本次免费，`free_match_count=0` 表示该星球无免费次数）。免费次数按「每用户每星球每日」统计（`user_find.free_used_count`/`free_stat_date`），跨天自动重置。
 
 #### 7.3.2 发起寻找（业务）
 
@@ -901,10 +908,16 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | status | int | 0=进入寻找中（暂未匹配到），1=匹配成功 |
-| matched_user | object \| null | 匹配成功的对方：`{ id, nickname, avatar }` |
-| bind | object \| null | 匹配成功后的绑定关系：`{ id, uid, nickname, avatar, planet_id, create_time }` |
+| matched_user | object \| null | 匹配成功的对方：`{ id, nickname, avatar, profile }`（`profile` 为对方填写的资料：`{ gender, age, income_range, personality, city, face_score, edu_level }`） |
+| bind | object \| null | 匹配成功后的绑定关系：`{ id, uid, nickname, avatar, planet_id, planet_name, create_time }` |
+| is_free | bool | 本次发起是否免费（免费次数内） |
+| cost | int | 本次发起消耗熊爪（免费时为 0） |
 
-> 匹配规则：同星球另一 `status=0` 用户，且互相满足对方的目标条件（年龄范围 / 性别 / 收入 / 性格 / 同城 / 颜值 / 学历按星球 find_fields 配置过滤）；同一星球同一用户不能重复匹配自己；命中后双方 `user_find` 置 `status=1`，写入 `user_bind`（status=1），强制双向关注（`user_follow` 双方互插），双方各落库一条通知（type=6，`post_content`=星球名），并 `Pusher` 推送 `match_notice`。未命中则仅进入寻找状态，返回 `status=0`。
+> **扣费行为**：进入寻找（无论最终是否立即配对）即按费用规则结算——今日免费次数内（`free_remaining>0`）本次免费；否则若 `match_cost>0` 则从 `wallet.balance_paw` 扣减对应熊爪。余额不足（或钱包记录缺失）返回 `code=1`、`msg='熊爪不足，无法发起寻找'`，不写入寻找记录。免费次数与扣费在数据库事务内完成（扣费失败回滚）。
+
+> 匹配规则：同星球另一 `status=0` 用户（**无论在线/离线**，用户未手动停止寻找即持续参与配对），且互相满足对方的目标条件（年龄范围 / 性别 / 收入 / 性格 / 同城 / 颜值 / 学历按星球 find_fields 配置过滤）；同一星球同一用户不能重复匹配自己；命中后双方 `user_find` 置 `status=1`，写入 `user_bind`（status=1），强制双向关注（`user_follow` 双方互插），双方各落库一条通知（type=6，`post_content`=星球名），并 `Pusher` 推送 `match_notice`。未命中则仅进入寻找状态，返回 `status=0`。
+>
+> `match_notice` 推送 `notification` 字段：`{ id, from_uid, from_nickname, from_avatar, from_profile, planet_id, planet_name, type, create_time }`（`from_profile` 为对方填写的资料，`id` 为 notification 表通知 id，客户端弹窗后点按钮可标记已读）。**离线兜底**：`Pusher` 写入 `push_queue` 的通知类消息（配对/评论/回复/关注等）在用户离线期间不会被标记为已推送，用户上线 WS 认证后自动补推；`force_logout`/`maintenance` 为即时控制消息，离线不重放。解除绑定推送（type=7）同样携带 `id`。
 
 #### 7.3.3 停止寻找（业务）
 
@@ -1002,6 +1015,9 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | 停止寻找 | `/api/find/stop` | POST | 业务 |
 | 寻找状态 | `/api/find/status` | GET | 业务 |
 | 解除绑定 | `/api/find/unbind` | POST | 业务 |
+| 后台·社交关系管理 | `/social/findList` `/social/bindList` `/social/blockList` `/social/followList` `/social/stopFind` `/social/delFind` `/social/unbind` `/social/delBind` `/social/delBlock` `/social/delFollow` | GET/POST | 后台（密码二次验证） |
+| 后台·通知管理 | `/notification/getList` `/notification/read` `/notification/readAll` `/notification/del` | GET/POST | 后台（密码二次验证） |
+| 后台·表情包管理 | `/sticker/getList` `/sticker/add` `/sticker/setStatus` `/sticker/del` | GET/POST | 后台（密码二次验证） |
 | 应用信息 | `/api/index/index` | GET | 业务* |
 
 
@@ -1065,3 +1081,43 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | **删除评论** | `POST admin/Post/deleteComment` | **软删评论/楼中楼（密码二次验证）**：删顶层级联删其楼中楼，并**自动扣减帖子 `comment_count`** |
 
 > `admin/Post/deleteComment` 参数：`comment_id`、`admin_password`。删除后写入 `admin_log`（类型 `comment_delete`）。后台帖子预览弹框内每条正常评论右侧提供「删除」入口。
+
+## 13. 后台社交 / 通知 / 表情包管理接口（admin）
+
+> 覆盖已有功能的管理能力，入口在后台菜单「运营 → 社交关系 / 通知管理 / 表情包管理」。均**需管理员登录 + 操作密码二次验证**（`admin_password`）。
+
+### 13.1 后台社交关系管理（Social，`app/admin/controller/Social.php`）
+
+| 接口 | 路径 | 说明 |
+|------|------|------|
+| 管理页 | `GET /social/index` | 页面视图（寻找 / 绑定 / 黑名单 / 关注 四个标签页） |
+| 寻找记录列表 | `GET /social/findList` | 分页 + 用户ID / 星球ID / 状态 搜索；`status` 0=寻找中 1=已配对 2=已停止 |
+| 绑定关系列表 | `GET /social/bindList` | 分页 + 用户ID 搜索；`status` 1=绑定中 0=已解除 |
+| 黑名单列表 | `GET /social/blockList` | 分页 + 用户ID 搜索 |
+| 关注列表 | `GET /social/followList` | 分页 + 用户ID 搜索 |
+| 停止寻找 | `POST /social/stopFind` | `id` + `admin_password`：寻找中任务置为已停止（status 0→2） |
+| 删除寻找记录 | `POST /social/delFind` | `id` + `admin_password`：物理删除 |
+| 解除绑定 | `POST /social/unbind` | `id` + `admin_password`：status 1→0 |
+| 删除绑定 | `POST /social/delBind` | `id` + `admin_password`：物理删除 |
+| 解除黑名单 | `POST /social/delBlock` | `id` + `admin_password`：删除关系 |
+| 取消关注 | `POST /social/delFollow` | `id` + `admin_password`：删除关注关系 |
+
+### 13.2 后台通知管理（Notification，`app/admin/controller/Notification.php`）
+
+| 接口 | 路径 | 说明 |
+|------|------|------|
+| 管理页 | `GET /notification/index` | 页面视图 |
+| 通知列表 | `GET /notification/getList` | 分页 + 收件用户ID / 发送者ID / 类型 / 已读 搜索 |
+| 标记已读 | `POST /notification/read` | `id` + `admin_password` |
+| 按用户全部已读 | `POST /notification/readAll` | `uid` + `admin_password` |
+| 删除通知 | `POST /notification/del` | `id` + `admin_password`：物理删除 |
+
+### 13.3 后台表情包管理（Sticker，`app/admin/controller/Sticker.php`）
+
+| 接口 | 路径 | 说明 |
+|------|------|------|
+| 管理页 | `GET /sticker/index` | 页面视图（含图片预览） |
+| 表情列表 | `GET /sticker/getList` | 分页 + 上传者ID / 状态 / 文件名 搜索 |
+| 上传新增 | `POST /sticker/add` | `file`（图片，≤1MB）+ `admin_password`：存为平台表情（`user_id=0`） |
+| 切换状态 | `POST /sticker/setStatus` | `id` / `status`（1上架 0下架）+ `admin_password` |
+| 删除 | `POST /sticker/del` | `id` + `admin_password`：物理删除（保留磁盘文件） |

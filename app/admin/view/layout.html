@@ -647,6 +647,8 @@
 <script>ACGOTheme.init();</script>
 <script src="/static/common/js/jquery-3.7.1.min.js"></script>
 <script src="/static/common/lib/layui/layui.js"></script>
+<!-- 后台公共基础设施：全局掉线拦截 / 弹窗辅助（须在 layui 之后、页面私有 script 之前） -->
+<script src="/static/common/js/admin-core.js"></script>
 
 <!-- 页面私有 JS -->
 {block name="script"}{/block}

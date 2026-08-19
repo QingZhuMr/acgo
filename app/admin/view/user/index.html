@@ -103,6 +103,16 @@ layui.use(['table', 'form', 'layer', 'upload'], function () {
                 return '<button type="button" class="layui-btn layui-btn-xs wallet-btn" data-id="' + d.id + '" data-name="' + (d.nickname || d.phone) + '" data-wallet=\'' + JSON.stringify(d.wallet.balances) + '\'><i class="fas fa-wallet"></i> 查看</button>';
             } },
             { field: 'online', title: '在线', width: 90, align: 'center', templet: '#onlineTpl' },
+            { field: 'pairing', title: '配对状态', minWidth: 130, align: 'center', templet: function (d) {
+                var p = d.pairing || {};
+                var st = p.status || 0;
+                var color = st === 1 ? '#fa8c16' : (st === 2 ? '#52c41a' : '#999');
+                var html = '<span style="color:' + color + ';font-weight:600;">' + (p.status_text || '未寻找') + '</span>';
+                if (p.partner) {
+                    html += '<br><span style="font-size:11px;color:#888;">对象：' + layui.util.escape(p.partner) + '</span>';
+                }
+                return html;
+            } },
             { field: 'status', title: '状态', width: 100, align: 'center', templet: '#statusTpl', sort: true },
             { field: 'register_time', title: '注册时间', minWidth: 160, sort: true },
             { field: 'last_login_time', title: '最后登录', minWidth: 160, sort: true },
@@ -236,7 +246,7 @@ layui.use(['table', 'form', 'layer', 'upload'], function () {
                 shadeClose: true
             });
             // 操作按钮点击（事件委托到弹窗内容）
-            $('.op-layer-body button').off('click').on('click', function () {
+            $('#layui-layer' + opsLayer + ' .op-layer-body button').off('click').on('click', function () {
                 var ev = $(this).attr('data-ev');
                 layer.close(opsLayer);
                 if (ev === 'edit') openForm('edit', data);

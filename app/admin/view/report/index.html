@@ -172,7 +172,7 @@ layui.use(['table', 'form', 'layer'], function () {
                 shade: 0.3,
                 shadeClose: true
             });
-            $('.op-layer-body button').off('click').on('click', function () {
+            $('#layui-layer' + opsLayer + ' .op-layer-body button').off('click').on('click', function () {
                 var ev = $(this).attr('data-ev');
                 layer.close(opsLayer);
                 if (ev === 'preview') openPreview(data.post_id, data.comment_id, data.post_type);

@@ -212,7 +212,7 @@ layui.use(['table', 'form', 'layer'], function () {
     });
 
     // ===== 人工充值全屏弹框 =====
-    $('#btnManualRecharge').on('click', function () {
+    $(document).on('click', '#btnManualRecharge', function () {
         var searchTimer = null;
         var selectedUser = null; // 当前选中的用户
 
