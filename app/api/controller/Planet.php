@@ -20,19 +20,23 @@ class Planet extends BaseController
      * GET /planet/list
      *
      * 返回启用的星球，按 sort 升序、id 升序。
-     * data 每项：{id, seed, name, intro}
+     * data 每项：{id, seed, type, name, intro}
+     * type：earth类地 / jupiter气态 / lava岩浆 / rock岩石 /
+     *      gradient_green绿渐变 / gradient_blue蓝渐变 /
+     *      gradient_pink粉渐变 / gradient_red红渐变 / blackhole黑洞
      */
     public function list()
     {
         $list = Db::name('planet')
             ->where('status', 1)
             ->order('sort asc, id asc')
-            ->field('id, seed, name, intro')
+            ->field('id, seed, type, name, intro')
             ->select()
             ->toArray();
 
         foreach ($list as &$item) {
             $item['seed']  = (int) $item['seed'];
+            $item['type']  = (string) ($item['type'] ?? 'earth');
             $item['intro'] = (string) $item['intro'];
         }
         unset($item);

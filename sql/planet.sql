@@ -10,6 +10,7 @@ DROP TABLE IF EXISTS `planet`;
 CREATE TABLE `planet` (
   `id`          INT UNSIGNED     NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `seed`        INT UNSIGNED     NOT NULL DEFAULT 0     COMMENT '星球种子（创建时自动生成，同种子同星球）',
+  `type`        VARCHAR(20)      NOT NULL DEFAULT 'earth' COMMENT '星球类型：earth类地/jupiter气态/lava岩浆/rock岩石/gradient_green绿渐变/gradient_blue蓝渐变/gradient_pink粉渐变/gradient_red红渐变/blackhole黑洞',
   `name`        VARCHAR(50)      NOT NULL DEFAULT ''    COMMENT '星球名称',
   `intro`       VARCHAR(500)     NOT NULL DEFAULT ''    COMMENT '星球介绍',
   `sort`        INT              NOT NULL DEFAULT 0     COMMENT '排序权重，越小越靠前',
@@ -18,7 +19,8 @@ CREATE TABLE `planet` (
   `update_time` INT              NOT NULL DEFAULT 0     COMMENT '更新时间',
   PRIMARY KEY (`id`),
   KEY `idx_status_sort` (`status`, `sort`),
-  KEY `idx_seed` (`seed`)
+  KEY `idx_seed` (`seed`),
+  KEY `idx_type` (`type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='星球表';
 
 -- -----------------------------------------------------

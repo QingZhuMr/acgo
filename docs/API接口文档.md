@@ -798,16 +798,31 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 
 - **路径**：`GET /api/planet/list`
 - **鉴权**：公开（仅签名，游客可浏览）
-- **功能**：返回后台创建的**已启用**星球列表，按 `sort` 升序、`id` 升序。客户端星球页据此展示星球名称/介绍，并按 `seed` 程序化生成对应星球外观（同一种子 → 同一星球）。
+- **功能**：返回后台创建的**已启用**星球列表，按 `sort` 升序、`id` 升序。客户端星球页据此展示星球名称/介绍，并按 `seed`+`type` 程序化生成对应星球外观（同一种子+类型 → 同一星球）。
 
 **返回 data**：数组，每项：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | int | 星球 ID |
-| seed | int | 星球种子（后台创建时自动生成，决定星球外观） |
+| seed | int | 星球种子（后台创建时自动生成，决定星球地形） |
+| type | string | 星球类型（见下表） |
 | name | string | 星球名称 |
 | intro | string | 星球介绍 |
+
+**星球类型 `type`**：
+
+| type 值 | 说明 | 客户端表现 |
+|---------|------|-----------|
+| `earth` | 类地行星 | 蓝海/绿草地/白沙漠/极地冰雪 |
+| `jupiter` | 气态行星 | 木星式纬向条纹云带+大红斑 |
+| `lava` | 岩浆行星 | 熔岩海+亮橙熔岩陆块+黑曜石裂纹 |
+| `rock` | 岩石行星 | 灰蓝岩海+灰岩陆块（无植被） |
+| `gradient_green` | 绿色渐变 | 渐变海+浅绿渐变陆块 |
+| `gradient_blue` | 蓝色渐变 | 渐变海+浅蓝渐变陆块 |
+| `gradient_pink` | 粉色渐变 | 渐变海+浅粉渐变陆块 |
+| `gradient_red` | 红色渐变 | 渐变海+浅红渐变陆块 |
+| `blackhole` | 黑洞 | 全黑+橙色亮光晕+不自转 |
 
 **示例**：
 ```json
@@ -815,7 +830,7 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
   "code": 0,
   "msg": "ok",
   "data": [
-    { "id": 1, "seed": 36184205, "name": "翡翠星", "intro": "一片广袤的绿色大陆。" }
+    { "id": 1, "seed": 36184205, "type": "earth", "name": "翡翠星", "intro": "一片广袤的绿色大陆。" }
   ]
 }
 ```
@@ -826,8 +841,8 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 |------|------|------|------|
 | 管理页 | `/admin/planet/index` | GET | 页面视图 |
 | 列表 | `/admin/planet/getList` | GET | 分页 + 关键词/状态搜索 |
-| 新增 | `/admin/planet/add` | POST | `name`（必填≤50）/`intro`（≤500）/`sort`；**种子自动生成 `random_int(1,99999999)`** |
-| 编辑 | `/admin/planet/edit` | POST | `id`/`name`/`intro`/`sort`/`status`（种子不可修改） |
+| 新增 | `/admin/planet/add` | POST | `name`（必填≤50）/`type`（必填，9 类白名单）/`intro`（≤500）/`sort`；**种子自动生成 `random_int(1,99999999)`** |
+| 编辑 | `/admin/planet/edit` | POST | `id`/`name`/`type`/`intro`/`sort`/`status`（种子不可修改） |
 | 删除 | `/admin/planet/delete` | POST | `id` |
 | 上下线 | `/admin/planet/toggle` | POST | `id`/`status` |
 

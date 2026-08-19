@@ -87,6 +87,8 @@
 
 {block name="script"}
 <script>
+// 星球类型选项（后端注入：key=存储值, value=显示名）
+var PLANET_TYPES = {:json_encode($types, JSON_UNESCAPED_UNICODE)};
 layui.use(['table', 'form', 'layer'], function () {
     var table = layui.table;
     var form  = layui.form;
@@ -119,6 +121,7 @@ layui.use(['table', 'form', 'layer'], function () {
             { field: 'id', title: 'ID', width: 70, align: 'center', sort: true },
             { field: 'name', title: '名称', minWidth: 120 },
             { field: 'seed', title: '种子', width: 110, align: 'center' },
+            { field: 'type_text', title: '类型', width: 110, align: 'center' },
             { field: 'intro', title: '介绍', minWidth: 200,
               templet: function (d) {
                   return '<div class="planet-intro-preview" title="' + (d.intro || '') + '">' + (d.intro || '-') + '</div>';
@@ -154,6 +157,18 @@ layui.use(['table', 'form', 'layer'], function () {
     });
 
     // ===== 新增 / 编辑弹窗 =====
+    // 生成类型下拉 option 串（selected 为当前选中值）
+    function buildTypeOptions(selected) {
+        var keys = Object.keys(PLANET_TYPES || {});
+        var out = '';
+        for (var i = 0; i < keys.length; i++) {
+            var v = keys[i];
+            var label = PLANET_TYPES[v];
+            out += '<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>' + label + '</option>';
+        }
+        return out;
+    }
+
     function openEdit(row) {
         var isEdit = !!row;
         var html = '' +
@@ -161,6 +176,12 @@ layui.use(['table', 'form', 'layer'], function () {
                 '<div class="planet-field">' +
                     '<div class="planet-label">星球名称 <span class="req">*</span></div>' +
                     '<input type="text" id="plName" placeholder="请输入星球名称（最多50字）" autocomplete="off" maxlength="50" class="layui-input" value="' + (isEdit ? (row.name || '') : '') + '">' +
+                '</div>' +
+                '<div class="planet-field">' +
+                    '<div class="planet-label">星球类型 <span class="req">*</span></div>' +
+                    '<select id="plType" lay-ignore>' +
+                        buildTypeOptions(isEdit ? (row.type || 'earth') : 'earth') +
+                    '</select>' +
                 '</div>' +
                 '<div class="planet-field">' +
                     '<div class="planet-label">星球介绍</div>' +
@@ -209,7 +230,7 @@ layui.use(['table', 'form', 'layer'], function () {
             var sort = parseInt($('#plSort').val(), 10);
             if (isNaN(sort)) sort = 0;
             if (name === '') { layer.msg('请输入星球名称', { icon: 2 }); return; }
-            var postData = { name: name, intro: intro, sort: sort };
+            var postData = { name: name, intro: intro, sort: sort, type: $('#plType').val() || 'earth' };
             if (isEdit) {
                 postData.id = row.id;
                 postData.status = $('input[name="plStatus"]:checked').val() === '1' ? 1 : 0;

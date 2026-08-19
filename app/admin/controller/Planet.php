@@ -23,11 +23,25 @@ use think\facade\View;
 
 class Planet extends BaseController
 {
+    /** 星球类型白名单（key=存储值，value=显示名） */
+    const TYPES = [
+        'earth'          => '类地行星',
+        'jupiter'        => '气态行星',
+        'lava'           => '岩浆行星',
+        'rock'           => '岩石行星',
+        'gradient_green' => '绿色渐变',
+        'gradient_blue'  => '蓝色渐变',
+        'gradient_pink'  => '粉色渐变',
+        'gradient_red'   => '红色渐变',
+        'blackhole'      => '黑洞',
+    ];
+
     /**
      * 管理页（页面视图）
      */
     public function index()
     {
+        View::assign('types', self::TYPES);
         return View::fetch();
     }
 
@@ -58,6 +72,7 @@ class Planet extends BaseController
             ->toArray();
 
         foreach ($list as &$item) {
+            $item['type_text']        = self::TYPES[$item['type']] ?? $item['type'];
             $item['status_text']      = (int) $item['status'] === 1 ? '已启用' : '已禁用';
             $item['status_badge']     = (int) $item['status'] === 1 ? 'badge-green' : 'badge-gray';
             $item['create_time_text'] = $item['create_time']
@@ -81,7 +96,11 @@ class Planet extends BaseController
         $name  = trim((string) $this->request->post('name', ''));
         $intro = trim((string) $this->request->post('intro', ''));
         $sort  = (int) $this->request->post('sort', 0);
+        $type  = trim((string) $this->request->post('type', 'earth'));
 
+        if (!isset(self::TYPES[$type])) {
+            return json(['code' => 1, 'msg' => '星球类型不合法']);
+        }
         if ('' === $name) {
             return json(['code' => 1, 'msg' => '星球名称不能为空']);
         }
@@ -95,6 +114,7 @@ class Planet extends BaseController
         $now = time();
         $id  = Db::name('planet')->insertGetId([
             'seed'        => random_int(1, 99999999),
+            'type'        => $type,
             'name'        => $name,
             'intro'       => $intro,
             'sort'        => $sort,
@@ -125,7 +145,11 @@ class Planet extends BaseController
         $intro  = trim((string) $this->request->post('intro', ''));
         $sort   = (int) $this->request->post('sort', 0);
         $status = (int) $this->request->post('status', 1);
+        $type   = trim((string) $this->request->post('type', $row['type'] ?? 'earth'));
 
+        if (!isset(self::TYPES[$type])) {
+            return json(['code' => 1, 'msg' => '星球类型不合法']);
+        }
         if ('' === $name) {
             return json(['code' => 1, 'msg' => '星球名称不能为空']);
         }
@@ -137,6 +161,7 @@ class Planet extends BaseController
         }
 
         Db::name('planet')->where('id', $id)->update([
+            'type'        => $type,
             'name'        => $name,
             'intro'       => $intro,
             'sort'        => $sort,
