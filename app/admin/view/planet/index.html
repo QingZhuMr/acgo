@@ -263,6 +263,13 @@ layui.use(['table', 'form', 'layer'], function () {
                     '<div class="form-tip">每次发起寻找消耗的熊爪积分；0 表示免费。免费次数用尽后按此费用扣熊爪</div>' +
                 '</div>' +
             '</div>' +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">免费次数</label>' +
+                '<div class="layui-input-block">' +
+                    '<input type="number" name="free_match_count" min="0" value="' + (isEdit ? (parseInt(data.free_match_count, 10) || 0) : 0) + '" placeholder="每个账号在该星球永久免费次数，0=无" autocomplete="off" class="layui-input">' +
+                    '<div class="form-tip">每个账号在该星球可永久免费发起寻找的次数；用尽后按单次费用扣熊爪</div>' +
+                '</div>' +
+            '</div>' +
             (isEdit ?
             '<div class="layui-form-item">' +
                 '<label class="layui-form-label">种子</label>' +
@@ -328,7 +335,8 @@ layui.use(['table', 'form', 'layer'], function () {
                     force_face_auth: parseInt(data.force_face_auth, 10) === 1 ? 'on' : undefined,
                     force_edu_auth: parseInt(data.force_edu_auth, 10) === 1 ? 'on' : undefined,
                     force_asset_auth: parseInt(data.force_asset_auth, 10) === 1 ? 'on' : undefined,
-                    match_cost: parseInt(data.match_cost, 10) || 0
+                    match_cost: parseInt(data.match_cost, 10) || 0,
+                    free_match_count: parseInt(data.free_match_count, 10) || 0
                 });
                 form.render();
             }
@@ -369,6 +377,13 @@ layui.use(['table', 'form', 'layer'], function () {
                     '<div class="form-tip">每次发起寻找消耗的熊爪积分；0 表示免费。免费次数用尽后按此费用扣熊爪</div>' +
                 '</div>' +
             '</div>' +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">免费次数</label>' +
+                '<div class="layui-input-block">' +
+                    '<input type="number" name="free_match_count" min="0" value="' + (parseInt(data.free_match_count, 10) || 0) + '" placeholder="每个账号在该星球永久免费次数，0=无" autocomplete="off" class="layui-input">' +
+                    '<div class="form-tip">每个账号在该星球可永久免费发起寻找的次数；用尽后按单次费用扣熊爪。与创建/编辑表单共用同一字段</div>' +
+                '</div>' +
+            '</div>' +
             '<div class="layui-form-item" style="text-align:right;padding-right:25px;">' +
                 '<button class="layui-btn" lay-submit lay-filter="submitFindConfig">保存</button>' +
                 '<button type="button" class="layui-btn layui-btn-primary" id="btnCancel">取消</button>' +
@@ -387,7 +402,8 @@ layui.use(['table', 'form', 'layer'], function () {
             force_face_auth: data.field.force_face_auth === 'on' ? 1 : 0,
             force_edu_auth: data.field.force_edu_auth === 'on' ? 1 : 0,
             force_asset_auth: data.field.force_asset_auth === 'on' ? 1 : 0,
-            match_cost: parseInt(data.field.match_cost, 10) || 0
+            match_cost: parseInt(data.field.match_cost, 10) || 0,
+            free_match_count: parseInt(data.field.free_match_count, 10) || 0
         };
         $.post('/planet/findConfig', formData, function (res) {
             if (res.code === 0) { layer.closeAll(); layer.msg(res.msg, { icon: 1 }); planetTable.reload(); }
@@ -403,7 +419,8 @@ layui.use(['table', 'form', 'layer'], function () {
             type: data.field.type || 'earth',
             intro: data.field.intro || '',
             sort: parseInt(data.field.sort, 10) || 0,
-            match_cost: parseInt(data.field.match_cost, 10) || 0
+            match_cost: parseInt(data.field.match_cost, 10) || 0,
+            free_match_count: parseInt(data.field.free_match_count, 10) || 0
         };
         var editId = $('input[name="id"]').val();
         var url = editId ? '/planet/edit' : '/planet/add';

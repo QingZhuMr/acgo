@@ -56,6 +56,9 @@ class Find extends BaseController
         // 费用与免费次数（供前端展示与发起时扣费判定复用）
         $costInfo = $this->resolveFindCost($planet, $uid);
 
+        // 超时未配对的任务：自动停止并退回扣费
+        $this->expireStaleFinds($uid, time());
+
         return json([
             'code' => 0,
             'msg'  => 'ok',
@@ -75,6 +78,7 @@ class Find extends BaseController
                 'balance_paw'      => $this->myPaw($uid),
                 'match_cost'       => $costInfo['cost'],
                 'free_remaining'   => $costInfo['free_remaining'],
+                'match_timeout'    => (int) $this->getConfigValue('find_match_timeout', 60),
                 'cost_notice'      => (string) $this->getConfigValue('find_cost_notice', ''),
             ],
         ]);
@@ -142,17 +146,23 @@ class Find extends BaseController
         $cost = $costInfo['cost'];
 
         try {
-            $result = Db::transaction(function () use ($uid, $planetId, $profile, $target, $now, $cost) {
-                // 永久免费次数判定（后台按 账号+星球 赠送，扣减 free_used；非每日重置）
+            $result = Db::transaction(function () use ($uid, $planetId, $planet, $profile, $target, $now, $cost) {
+                // 停止我旧的寻找记录并退回扣费（同一账户同时只能在一个星球寻找）
+                $this->stopMyFinds($uid, $now);
+
+                // 永久免费次数判定（星球可配置每账号默认免费次数，后台也可按 账号+星球 额外赠送）
                 $freeRow = Db::name('user_find_free')
                     ->where('user_id', $uid)
                     ->where('planet_id', $planetId)
                     ->find();
+                $freeDefault = (int) ($planet['free_match_count'] ?? 0);
                 $freeRemaining = $freeRow
                     ? max(0, (int) $freeRow['free_total'] - (int) $freeRow['free_used'])
-                    : 0;
+                    : $freeDefault;
                 $isFree = $freeRemaining > 0;
 
+                $chargeType = '';
+                $chargeAmount = 0;
                 if ($isFree) {
                     // 消耗一次永久免费次数
                     if ($freeRow) {
@@ -164,12 +174,14 @@ class Find extends BaseController
                         Db::name('user_find_free')->insert([
                             'user_id'     => $uid,
                             'planet_id'   => $planetId,
-                            'free_total'  => 0,
+                            'free_total'  => $freeDefault,
                             'free_used'   => 1,
                             'create_time' => $now,
                             'update_time' => $now,
                         ]);
                     }
+                    $chargeType = 'free';
+                    $chargeAmount = 1;
                 } elseif ($cost > 0) {
                     // 付费：单次费用 > 0 → 扣熊爪
                     $aff = Db::name('wallet')
@@ -180,6 +192,8 @@ class Find extends BaseController
                     if ($aff < 1) {
                         throw new \Exception('熊爪不足');
                     }
+                    $chargeType = 'paw';
+                    $chargeAmount = $cost;
                 }
 
                 // 保存/更新我的资料（首填后自动复用）
@@ -193,20 +207,16 @@ class Find extends BaseController
                     Db::name('user_find_profile')->insert($profile);
                 }
 
-                // 停止我旧的寻找记录（同一账户同时只能在一个星球寻找）
-                Db::name('user_find')
-                    ->where('user_id', $uid)
-                    ->where('status', 0)
-                    ->update(['status' => 2, 'stop_time' => $now]);
-
-                // 插入新寻找记录（携带免费次数记录字段）
+                // 插入新寻找记录（记录本次扣费，配对失败时退回）
                 $findId = Db::name('user_find')->insertGetId([
-                    'user_id'     => $uid,
-                    'planet_id'   => $planetId,
-                    'target'      => json_encode($target, JSON_UNESCAPED_UNICODE),
-                    'status'      => 0,
-                    'matched_uid' => 0,
-                    'create_time' => $now,
+                    'user_id'       => $uid,
+                    'planet_id'     => $planetId,
+                    'target'        => json_encode($target, JSON_UNESCAPED_UNICODE),
+                    'status'        => 0,
+                    'matched_uid'   => 0,
+                    'charge_type'   => $chargeType,
+                    'charge_amount' => $chargeAmount,
+                    'create_time'   => $now,
                 ]);
                 return ['find_id' => $findId, 'is_free' => $isFree, 'cost' => $cost];
             });
@@ -254,12 +264,18 @@ class Find extends BaseController
         $uid = (int) $device['user_id'];
 
         $now = time();
-        $n = Db::name('user_find')
-            ->where('user_id', $uid)
-            ->where('status', 0)
-            ->update(['status' => 2, 'stop_time' => $now]);
+        $info = $this->stopMyFinds($uid, $now);
 
-        return json(['code' => 0, 'msg' => $n > 0 ? '已停止寻找' : '当前没有寻找中的任务', 'data' => []]);
+        if ($info['count'] > 0) {
+            if ($info['refund_type'] === 'paw') {
+                return json(['code' => 0, 'msg' => '已停止寻找，已退回 ' . $info['refund_amount'] . ' 熊爪', 'data' => $info]);
+            }
+            if ($info['refund_type'] === 'free') {
+                return json(['code' => 0, 'msg' => '已停止寻找，本次免费次数已退回', 'data' => $info]);
+            }
+            return json(['code' => 0, 'msg' => '已停止寻找', 'data' => $info]);
+        }
+        return json(['code' => 0, 'msg' => '当前没有寻找中的任务', 'data' => $info]);
     }
 
     /**
@@ -273,6 +289,9 @@ class Find extends BaseController
             return json(['code' => 401, 'msg' => '设备未授权']);
         }
         $uid = (int) $device['user_id'];
+
+        // 超时未配对：自动停止并退回扣费
+        $this->expireStaleFinds($uid, time());
 
         return json([
             'code' => 0,
@@ -429,7 +448,7 @@ class Find extends BaseController
             ->find();
         $freeRemaining = $freeRow
             ? max(0, (int) $freeRow['free_total'] - (int) $freeRow['free_used'])
-            : 0;
+            : (int) ($planet['free_match_count'] ?? 0);
 
         return [
             'cost'           => $cost,
@@ -442,6 +461,99 @@ class Find extends BaseController
     {
         $val = Db::name('config')->where('name', $name)->value('value');
         return $val === null ? $default : $val;
+    }
+
+    /**
+     * 停止某用户所有「寻找中」的任务，未成功配对的退回本次扣费（手动取消/重复发起）
+     *
+     * @return array{count:int, refund_type:string, refund_amount:int}
+     */
+    protected function stopMyFinds(int $uid, int $now): array
+    {
+        $finds = Db::name('user_find')
+            ->where('user_id', $uid)
+            ->where('status', 0)
+            ->select()
+            ->toArray();
+
+        $count = 0;
+        $refundType = '';
+        $refundAmount = 0;
+        foreach ($finds as $f) {
+            $count++;
+            if ((int) $f['refunded'] !== 1) {
+                $this->refundFind($uid, $f);
+                $refundType = (string) $f['charge_type'];
+                $refundAmount = (int) $f['charge_amount'];
+            }
+            Db::name('user_find')->where('id', (int) $f['id'])->update([
+                'status'    => 2,
+                'stop_time' => $now,
+                'refunded'  => 1,
+            ]);
+        }
+        return ['count' => $count, 'refund_type' => $refundType, 'refund_amount' => $refundAmount];
+    }
+
+    /**
+     * 超时未配对的任务：自动停止并退回扣费（懒过期，任意接口触发时顺带清理）
+     */
+    protected function expireStaleFinds(int $uid, int $now): void
+    {
+        $timeout = (int) $this->getConfigValue('find_match_timeout', 60);
+        $deadline = $now - max(10, $timeout);
+        $stale = Db::name('user_find')
+            ->where('user_id', $uid)
+            ->where('status', 0)
+            ->where('create_time', '<', $deadline)
+            ->select()
+            ->toArray();
+        foreach ($stale as $f) {
+            if ((int) $f['refunded'] !== 1) {
+                $this->refundFind($uid, $f);
+            }
+            Db::name('user_find')->where('id', (int) $f['id'])->update([
+                'status'    => 2,
+                'stop_time' => $now,
+                'refunded'  => 1,
+            ]);
+        }
+    }
+
+    /**
+     * 退回一次未成功配对的扣费
+     * - free：回补 user_find_free.free_used（减 1，最低 0）
+     * - paw：回补钱包 balance_paw
+     */
+    protected function refundFind(int $uid, array $find): void
+    {
+        $type = (string) ($find['charge_type'] ?? '');
+        $amount = (int) ($find['charge_amount'] ?? 0);
+        if ($type === '' || $amount <= 0) {
+            return;
+        }
+        if ($type === 'paw') {
+            $wallet = Db::name('wallet')->where('uid', $uid)->find();
+            if ($wallet) {
+                Db::name('wallet')->where('uid', $uid)
+                    ->inc('balance_paw', $amount)
+                    ->update(['update_time' => time()]);
+            } else {
+                Db::name('wallet')->insert([
+                    'uid'          => $uid,
+                    'balance_paw'  => $amount,
+                    'create_time'  => time(),
+                    'update_time'  => time(),
+                ]);
+            }
+        } elseif ($type === 'free') {
+            Db::name('user_find_free')
+                ->where('user_id', $uid)
+                ->where('planet_id', (int) $find['planet_id'])
+                ->where('free_used', '>', 0)
+                ->dec('free_used', 1)
+                ->update(['update_time' => time()]);
+        }
     }
 
     /** 当前用户的熊爪余额（整数积分），无钱包记录返回 0 */
@@ -574,11 +686,14 @@ class Find extends BaseController
             return null;
         }
 
-        // 候选：同星球、寻找中、非自己；按时间升序（先来的先配）
+        // 候选：同星球、寻找中、非自己、未超时；按时间升序（先来的先配）
+        $timeout = (int) $this->getConfigValue('find_match_timeout', 60);
+        $deadline = time() - max(10, $timeout);
         $candidates = Db::name('user_find')
             ->where('planet_id', $planetId)
             ->where('status', 0)
             ->where('user_id', '<>', $uid)
+            ->where('create_time', '>=', $deadline)
             ->order('id', 'asc')
             ->limit(50)
             ->select()

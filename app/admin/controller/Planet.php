@@ -97,11 +97,12 @@ class Planet extends BaseController
      */
     public function add()
     {
-        $name      = trim((string) $this->request->post('name', ''));
-        $intro     = trim((string) $this->request->post('intro', ''));
-        $sort      = (int) $this->request->post('sort', 0);
-        $type      = trim((string) $this->request->post('type', 'earth'));
-        $matchCost = (int) $this->request->post('match_cost', 0);
+        $name           = trim((string) $this->request->post('name', ''));
+        $intro          = trim((string) $this->request->post('intro', ''));
+        $sort           = (int) $this->request->post('sort', 0);
+        $type           = trim((string) $this->request->post('type', 'earth'));
+        $matchCost      = (int) $this->request->post('match_cost', 0);
+        $freeMatchCount = (int) $this->request->post('free_match_count', 0);
 
         if (!isset(self::TYPES[$type])) {
             return json(['code' => 1, 'msg' => '星球类型不合法']);
@@ -118,18 +119,22 @@ class Planet extends BaseController
         if ($matchCost < 0) {
             return json(['code' => 1, 'msg' => '单次匹配费用不能为负']);
         }
+        if ($freeMatchCount < 0) {
+            return json(['code' => 1, 'msg' => '免费次数不能为负']);
+        }
 
         $now = time();
         $id  = Db::name('planet')->insertGetId([
-            'seed'        => random_int(1, 99999999),
-            'type'        => $type,
-            'name'        => $name,
-            'intro'       => $intro,
-            'sort'        => $sort,
-            'match_cost'  => $matchCost,
-            'status'      => 1,
-            'create_time' => $now,
-            'update_time' => $now,
+            'seed'             => random_int(1, 99999999),
+            'type'             => $type,
+            'name'             => $name,
+            'intro'            => $intro,
+            'sort'             => $sort,
+            'match_cost'       => $matchCost,
+            'free_match_count' => $freeMatchCount,
+            'status'           => 1,
+            'create_time'      => $now,
+            'update_time'      => $now,
         ]);
 
         $this->log('planet_create', '创建星球 id=' . $id . ' 名称=' . $name);
@@ -150,12 +155,13 @@ class Planet extends BaseController
             return json(['code' => 1, 'msg' => '星球不存在']);
         }
 
-        $name      = trim((string) $this->request->post('name', ''));
-        $intro     = trim((string) $this->request->post('intro', ''));
-        $sort      = (int) $this->request->post('sort', 0);
-        $status    = (int) $this->request->post('status', 1);
-        $type      = trim((string) $this->request->post('type', $row['type'] ?? 'earth'));
-        $matchCost = (int) $this->request->post('match_cost', -1);
+        $name           = trim((string) $this->request->post('name', ''));
+        $intro          = trim((string) $this->request->post('intro', ''));
+        $sort           = (int) $this->request->post('sort', 0);
+        $status         = (int) $this->request->post('status', 1);
+        $type           = trim((string) $this->request->post('type', $row['type'] ?? 'earth'));
+        $matchCost      = (int) $this->request->post('match_cost', -1);
+        $freeMatchCount = (int) $this->request->post('free_match_count', -1);
 
         if (!isset(self::TYPES[$type])) {
             return json(['code' => 1, 'msg' => '星球类型不合法']);
@@ -172,6 +178,9 @@ class Planet extends BaseController
         if ($matchCost < -1) {
             return json(['code' => 1, 'msg' => '单次匹配费用不能为负']);
         }
+        if ($freeMatchCount < -1) {
+            return json(['code' => 1, 'msg' => '免费次数不能为负']);
+        }
 
         $update = [
             'type'        => $type,
@@ -184,6 +193,9 @@ class Planet extends BaseController
         // 仅在表单传了该字段时才更新（保留原值，避免旧表单清空自定义配置）
         if ($matchCost >= 0) {
             $update['match_cost'] = $matchCost;
+        }
+        if ($freeMatchCount >= 0) {
+            $update['free_match_count'] = $freeMatchCount;
         }
 
         Db::name('planet')->where('id', $id)->update($update);
@@ -238,7 +250,7 @@ class Planet extends BaseController
      * 保存星球寻人配置（业务接口）
      * POST：id、enable_find(0/1)、find_fields(JSON 数组)、
      *      force_face_auth/force_edu_auth/force_asset_auth(0/1)、
-     *      match_cost(单次匹配费用,熊爪,0=未配置回落默认)、free_match_count(每日免费次数,0=无)
+     *      match_cost(单次匹配费用,熊爪,0=未配置回落默认)、free_match_count(该星球每账号默认永久免费次数,0=无)
      *
      * find_fields 可选值（我的资料字段）：gender/age/income_range/personality/city/face_score/edu_level
      * 性别与年龄为默认必填项（后台可勾选，保存时强制并入）。
@@ -263,7 +275,7 @@ class Planet extends BaseController
             return json(['code' => 1, 'msg' => '单次匹配费用不能为负']);
         }
         if ($freeMatchCount < -1) {
-            return json(['code' => 1, 'msg' => '每日免费次数不能为负']);
+            return json(['code' => 1, 'msg' => '免费次数不能为负']);
         }
 
         $fieldsRaw = (string) $this->request->post('find_fields', '[]');

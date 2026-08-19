@@ -49,7 +49,7 @@
                 { field: 'id', title: 'ID', width: 70, sort: true, align: 'center' },
                 { field: 'title_display', title: '菜单名称', minWidth: 220,
                   templet: function (d) {
-                      var icon = d.icon ? '<i class="fas ' + d.icon + ' icon-preview"></i>' : '';
+                      var icon = d.icon ? '<i class="' + d.icon + ' icon-preview"></i>' : '';
                       var name = d.title_display || d.title;
                       var cls = d.depth > 0 ? 'menu-title is-child' : 'menu-title is-top';
                       return '<span class="' + cls + '">' + icon + name + '</span>';
@@ -57,7 +57,7 @@
                 },
                 { field: 'parent_title', title: '父级菜单', width: 130, align: 'center' },
                 { field: 'icon', title: '图标', width: 90, align: 'center',
-                  templet: function (d) { return d.icon ? '<i class="fas ' + d.icon + ' menu-icon-cell"></i>' : '-'; }
+                  templet: function (d) { return d.icon ? '<i class="' + d.icon + ' menu-icon-cell"></i>' : '-'; }
                 },
                 { field: 'url', title: '链接地址', minWidth: 150 },
                 { field: 'level', title: '权限等级', width: 100, align: 'center',
@@ -68,9 +68,9 @@
                   }
                 },
                 { field: 'sort', title: '排序', width: 80, align: 'center', sort: true },
-                { field: 'status', title: '状态', width: 90, align: 'center',
+                { field: 'status', title: '状态', width: 110, align: 'center',
                   templet: function (d) {
-                      return d.status == 1 ? '<span class="badge-status badge-on">启用</span>' : '<span class="badge-status badge-off">禁用</span>';
+                      return '<input type="checkbox" lay-skin="switch" lay-text="启用|禁用" lay-filter="menuStatus" data-id="' + d.id + '"' + (d.status == 1 ? ' checked' : '') + '>';
                   }
                 },
                 { title: '操作', width: 90, align: 'center', toolbar: '#bar', fixed: 'right' }
@@ -123,7 +123,7 @@
                         '</div>' +
                         '<div class="layui-form-item">' +
                             '<label class="layui-form-label">图标</label>' +
-                            '<div class="layui-input-block"><input type="text" name="icon" id="icon_input" placeholder="点击下方图标选择，或手动输入" class="layui-input"></div>' +
+                            '<div class="layui-input-block"><input type="text" name="icon" id="icon_input" placeholder="点击下方图标选择，或手动输入（如 fas fa-user）" class="layui-input"></div>' +
                             '<div class="layui-input-block" style="margin-left:110px;margin-top:8px;"><div class="icon-select-box">' + iconHtml + '</div></div>' +
                         '</div>' +
                         '<div class="layui-form-item">' +
@@ -138,7 +138,7 @@
                         '</div>' +
                         '<div class="layui-form-item">' +
                             '<label class="layui-form-label">状态</label>' +
-                            '<div class="layui-input-block"><input type="checkbox" name="status" value="1" title="启用" checked></div>' +
+                            '<div class="layui-input-block"><input type="checkbox" name="status" value="1" lay-skin="switch" lay-text="启用|禁用" checked></div>' +
                         '</div>' +
                         '<div class="layui-form-item">' +
                             '<div class="layui-input-block"><button class="layui-btn" lay-submit lay-filter="saveMenu"><i class="fas fa-save"></i> 保存</button></div>' +
@@ -149,7 +149,7 @@
                         layero.find('.fa-item').on('click', function () {
                             layero.find('.fa-item').removeClass('active');
                             $(this).addClass('active');
-                            $('#icon_input', layero).val($(this).data('icon'));
+                            $('#icon_input', layero).val('fas ' + $(this).data('icon'));
                         });
                         // 渲染表单
                         form.render(null, 'menuForm');
@@ -163,11 +163,11 @@
                                         icon: res.data.icon,
                                         level: res.data.level,
                                         sort: res.data.sort,
-                                        status: res.data.status == 1 ? 'on' : ''
+                                        status: res.data.status == 1 ? '1' : ''
                                     });
-                                    // 高亮当前图标
+                                    // 高亮当前图标（data-icon 不带 fas 前缀）
                                     if (res.data.icon) {
-                                        layero.find('.fa-item[data-icon="' + res.data.icon + '"]').addClass('active');
+                                        layero.find('.fa-item[data-icon="' + String(res.data.icon).replace(/^fas\s+/, '') + '"]').addClass('active');
                                     }
                                 }
                             });
@@ -176,6 +176,23 @@
                 });
             });
         }
+
+        // 表格渲染完成后渲染内部开关
+        table.on('done(menuTable)', function () {
+            form.render();
+        });
+
+        // 状态切换开关：点击即保存
+        form.on('switch(menuStatus)', function (obj) {
+            var id = $(obj.elem).data('id');
+            var status = obj.elem.checked ? 1 : 0;
+            $.post('/menu/toggle', {id: id, status: status}, function (res) {
+                if (res.code !== 0) {
+                    layer.msg(res.msg, {icon: 2});
+                    table.reload('menuTable');
+                }
+            }, 'json');
+        });
 
         // 工具栏事件
         table.on('toolbar(menuTable)', function (obj) {

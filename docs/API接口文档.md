@@ -844,14 +844,14 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | 管理页 | `/admin/planet/index` | GET | 页面视图 |
 | 列表 | `/admin/planet/getList` | GET | 分页 + 关键词/状态搜索 |
 | 新增 | `/admin/planet/add` | POST | `name`（必填≤50）/`type`（必填，9 类白名单）/`intro`（≤500）/`sort`；**种子自动生成 `random_int(1,99999999)`** |
-| 编辑 | `/admin/planet/edit` | POST | `id`/`name`/`type`/`intro`/`sort`/`status`（种子不可修改） |
+| 编辑 | `/admin/planet/edit` | POST | `id`/`name`/`type`/`intro`/`sort`/`status`（种子不可修改）/`match_cost`（单次匹配费用，熊爪）/`free_match_count`（该星球每账号默认永久免费次数，0=无） |
 | 删除 | `/admin/planet/delete` | POST | `id` |
 | 上下线 | `/admin/planet/toggle` | POST | `id`/`status` |
-| 寻找配置 | `/admin/planet/findConfig` | POST | `id`/`enable_find`（是否开放"开始寻找"）/`find_fields`（JSON 数组，参与匹配的字段）/`force_face_auth`、`force_edu_auth`、`force_asset_auth`（是否强制对应认证才可配对）/`match_cost`（单次匹配费用，熊爪，0=未配置回落默认） |
+| 寻找配置 | `/admin/planet/findConfig` | POST | `id`/`enable_find`（是否开放"开始寻找"）/`find_fields`（JSON 数组，参与匹配的字段）/`force_face_auth`、`force_edu_auth`、`force_asset_auth`（是否强制对应认证才可配对）/`match_cost`（单次匹配费用，熊爪，0=未配置回落默认）/`free_match_count`（该星球每账号默认永久免费次数，0=无） |
 
 #### 6.x 赠送寻人免费次数（Find，`app/admin/controller/Find.php`）
 
-> 后台运营针对 **某个账号 + 某个星球** 赠送「永久免费次数」，累计存 `user_find_free` 表；用户发起寻找时用尽前不扣熊爪，用尽后回落 `match_cost` 扣熊爪。菜单入口：运营 → 赠送寻人次数。
+> 后台运营针对 **某个账号 + 某个星球** 赠送「永久免费次数」，累计存 `user_find_free` 表；用户发起寻找时用尽前不扣熊爪，用尽后回落 `match_cost` 扣熊爪。另外每个星球可在「星球管理」创建/编辑或「寻人配置」设置 `free_match_count`（该星球每账号默认永久免费次数），用户首次发起自动生效；此页赠送为在默认次数之上**额外追加**。菜单入口：运营 → 赠送寻人次数。
 
 | 接口 | 路径 | 方法 | 说明 |
 |------|------|------|------|
@@ -894,12 +894,15 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | my_bind | object \| null | 我的绑定关系：`{ id, uid, nickname, avatar, planet_id, planet_name, create_time }` |
 | balance_paw | int | 我当前的熊爪余额（用于发起寻找付费时校验/展示） |
 | match_cost | int | 本次发起寻找的**有效单次费用**（熊爪）：>0 表示付费，0 表示免费。星球 `match_cost` 为 0 时回落 `config.find_default_match_cost` 默认值 |
-| free_remaining | int | 该账号在本星球的**永久免费次数剩余**（后台按 账号+星球 赠送累计，用尽前本次免费；≤0 时本次将扣 `match_cost` 熊爪） |
+| free_remaining | int | 该账号在本星球的**永久免费次数剩余**（星球 `free_match_count` 默认 + 后台按 账号+星球 赠送累计，用尽前本次免费；≤0 时本次将扣 `match_cost` 熊爪） |
+| match_timeout | int | 匹配超时秒数（后台 `config.find_match_timeout` 配置，默认 60）：发起后超时未配对自动停止并退回本次扣费 |
 | cost_notice | string | 费用规则说明文案（后台 `config.find_cost_notice` 配置），前端展示用 |
 
 **find_fields 元素**：`gender`（性别，必选）、`age`（年龄，必选）、`income_range`（月收入范围）、`personality`（性格）、`city`（是否只寻找同城）、`face_score`（颜值打分）、`education`（学历）。元素格式：`{ "key": "gender", "label": "性别", "required": 1 }`。
 
-> **费用规则（寻人配对付费）**：`planet` 表 `match_cost`（单次费用，0=免费）由后台 `planet/findConfig` 配置；`config` 表 `find_default_match_cost`/`find_cost_notice` 作星球未配置时的全局默认/文案。**免费次数改为「账号永久次数」**：由运营在后台「赠送寻人次数」页（`/admin/find/grant`）针对 **某个账号 + 某个星球** 赠送，累计记录于 `user_find_free` 表（free_total/free_used，用尽前不扣熊爪，用尽后回落 `match_cost` 扣熊爪）。**原每日免费次数（`user_find.free_used_count`/`free_stat_date`、`planet.free_match_count`、`config.find_default_free_match_count`）已废弃不再使用。**
+> **费用规则（寻人配对付费）**：`planet` 表 `match_cost`（单次费用，0=免费）由后台 `planet/findConfig` 配置；`config` 表 `find_default_match_cost`/`find_cost_notice` 作星球未配置时的全局默认/文案。**免费次数为「账号永久次数」**：① 每个星球可在后台「星球管理」创建/编辑或「寻人配置」设置 `planet.free_match_count`（该星球每个账号的**默认永久免费次数**，0=无），用户在该星球首次发起寻找时自动建档生效；② 运营还可在后台「赠送寻人次数」页（`/admin/find/grant`）针对 **某个账号 + 某个星球** 额外赠送。累计记录于 `user_find_free` 表（free_total/free_used，用尽前不扣熊爪，用尽后回落 `match_cost` 扣熊爪）。**原每日免费次数（`user_find.free_used_count`/`free_stat_date`、`config.find_default_free_match_count`）已废弃不再使用。**
+
+> **配对失败退回**：每次发起寻找会把本次扣费写入 `user_find`（`charge_type`=free/paw、`charge_amount`、`refunded`=0）。配对未成功时退回：手动取消/重复发起调用 `find/stop` 时退回；超时（超过 `config.find_match_timeout` 秒未配对）在访问 `find/config`、`find/status` 时懒清理并退回；过期任务不再参与后续配对。免费次数回补 `user_find_free.free_used`（-1），熊爪回补 `wallet.balance_paw`。
 
 #### 7.3.2 发起寻找（业务）
 
@@ -922,7 +925,7 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | is_free | bool | 本次发起是否免费（免费次数内） |
 | cost | int | 本次发起消耗熊爪（免费时为 0） |
 
-> **扣费行为**：进入寻找（无论最终是否立即配对）即按费用规则结算——永久免费次数内（`free_remaining>0`）本次免费并消耗 1 次；否则若 `match_cost>0` 则从 `wallet.balance_paw` 扣减对应熊爪。余额不足（或钱包记录缺失）返回 `code=1`、`msg='熊爪不足，无法发起寻找'`，不写入寻找记录。免费次数与扣费在数据库事务内完成（扣费失败回滚）。
+> **扣费行为**：进入寻找（无论最终是否立即配对）即按费用规则结算（**发起匹配即扣费**）——永久免费次数内（`free_remaining>0`）本次免费并消耗 1 次（无 `user_find_free` 记录时按星球 `free_match_count` 自动建档）；否则若 `match_cost>0` 则从 `wallet.balance_paw` 扣减对应熊爪。余额不足（或钱包记录缺失）返回 `code=1`、`msg='熊爪不足，无法发起寻找'`，不写入寻找记录。免费次数与扣费在数据库事务内完成（扣费失败回滚）。本次扣费写入 `user_find.charge_type`/`charge_amount`（配对失败退回，见 7.3.1 费用规则）。
 
 > 匹配规则：同星球另一 `status=0` 用户（**无论在线/离线**，用户未手动停止寻找即持续参与配对），且互相满足对方的目标条件（年龄范围 / 性别 / 收入 / 性格 / 同城 / 颜值 / 学历按星球 find_fields 配置过滤）；同一星球同一用户不能重复匹配自己；命中后双方 `user_find` 置 `status=1`，写入 `user_bind`（status=1），强制双向关注（`user_follow` 双方互插），双方各落库一条通知（type=6，`post_content`=星球名），并 `Pusher` 推送 `match_notice`。未命中则仅进入寻找状态，返回 `status=0`。
 >
@@ -932,15 +935,15 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 
 - **路径**：`POST /api/find/stop`
 - **鉴权**：业务（签名 + 设备密钥）
-- **功能**：手动停止我当前星球的寻找状态（`user_find` 置 `status=2`）。
+- **功能**：手动停止我当前星球的寻找状态（`user_find` 置 `status=2`），**未成功配对的本次扣费自动退回**（免费次数回补 1 次 / 熊爪回补钱包，幂等）。
 
-**返回 data**：空
+**返回 data**：`{ count: 停止条数, refund_type: 'free' | 'paw' | '', refund_amount: int }`；`msg` 携带退回信息（如「已停止寻找，已退回 10 熊爪」「已停止寻找，本次免费次数已退回」）。
 
 #### 7.3.4 寻找状态（业务）
 
 - **路径**：`GET /api/find/status`
 - **鉴权**：业务（签名 + 设备密钥）
-- **功能**：返回我当前寻找/绑定状态（客户端启动、回到前台时兜底，处理 WS 离线期间的配对）。
+- **功能**：返回我当前寻找/绑定状态（客户端启动、回到前台时兜底，处理 WS 离线期间的配对）。访问时会顺带清理我超时未配对的任务（自动停止并退回扣费）。
 
 **返回 data**：`my_find`、`my_bind`（同 7.3.1）
 

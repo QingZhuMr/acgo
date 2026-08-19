@@ -161,6 +161,24 @@ class Menu extends BaseController
     }
 
     /**
+     * 切换菜单启用/禁用状态
+     */
+    public function toggle()
+    {
+        $id = (int) $this->request->post('id', 0);
+        if (!$id || !Db::name('menu')->where('id', $id)->find()) {
+            return json(['code' => 1, 'msg' => '菜单不存在']);
+        }
+        $status = (int) $this->request->post('status', 0) === 1 ? 1 : 0;
+
+        Db::name('menu')->where('id', $id)->update([
+            'status'      => $status,
+            'update_time' => time(),
+        ]);
+        return json(['code' => 0, 'msg' => $status === 1 ? '已启用' : '已禁用']);
+    }
+
+    /**
      * 删除菜单（含其子级）
      */
     public function delete()
