@@ -577,6 +577,15 @@ class User extends BaseController
             ->find();
 
         if ($exists) {
+            // 绑定关系校验：配对绑定中不能取关（先解除绑定才能取消好友）
+            $bound = Db::name('user_bind')
+                ->where('status', 1)
+                ->where('user_a', min($uid, $targetUid))
+                ->where('user_b', max($uid, $targetUid))
+                ->find();
+            if ($bound) {
+                return json(['code' => 1, 'msg' => '你们是绑定关系，请先解除绑定']);
+            }
             Db::name('user_follow')->where('id', $exists['id'])->delete();
             // 取关后检查是否还是好友
             $mutual = Db::name('user_follow')
@@ -1071,6 +1080,16 @@ class User extends BaseController
             return json(['code' => 1, 'msg' => '用户不存在']);
         }
 
+        // 绑定关系校验：配对绑定中不能拉黑（解除绑定后才能拉黑）
+        $bound = Db::name('user_bind')
+            ->where('status', 1)
+            ->where('user_a', min($uid, $targetUid))
+            ->where('user_b', max($uid, $targetUid))
+            ->find();
+        if ($bound) {
+            return json(['code' => 1, 'msg' => '你们是绑定关系，请先解除绑定']);
+        }
+
         $exists = Db::name('user_block')
             ->where('blocker_id', $uid)
             ->where('blocked_id', $targetUid)
@@ -1120,6 +1139,16 @@ class User extends BaseController
         $targetUid = (int) $this->request->post('target_uid', 0);
         if ($targetUid <= 0 || $targetUid === $uid) {
             return json(['code' => 1, 'msg' => '参数错误']);
+        }
+
+        // 绑定关系校验：配对绑定中不能解除好友关系（先解除绑定才能取消好友）
+        $bound = Db::name('user_bind')
+            ->where('status', 1)
+            ->where('user_a', min($uid, $targetUid))
+            ->where('user_b', max($uid, $targetUid))
+            ->find();
+        if ($bound) {
+            return json(['code' => 1, 'msg' => '你们是绑定关系，请先解除绑定']);
         }
 
         // 解除双方关注（双向删除，好友关系即解除）

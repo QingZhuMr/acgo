@@ -575,6 +575,8 @@
 ## 6. 通知（Notification）
 
 > 他人评论了我的帖子 / 回复了我的评论时生成一条通知。通知在 `post/comment` 落库评论后同步写入 `notification` 表，并经 `Pusher` 实时推送 `reply_notice`（对方在线立即收到），离线时由客户端下次轮询未读数兜底。
+>
+> 「开始寻找」配对成功（type=6）/ 解除绑定（type=7）也落库通知，经 `Pusher` 推送 `match_notice`（客户端 `NotificationCenter` 实时处理 + 系统通知）。
 
 ### 6.1 通知列表（业务）
 
@@ -589,7 +591,7 @@
 
 **返回 data**：`list[] { id, from_uid, from_nickname, from_avatar, post_id, post_content, comment_id, comment_content, type, is_read, create_time, create_time_text }`、`total`、`unread_count`、`page`
 
-- `type`：`1`=评论了我的帖子，`2`=回复了我的评论，`3`=关注了我，`4`=赞了我的动态，`5`=收藏了我的动态
+- `type`：`1`=评论了我的帖子，`2`=回复了我的评论，`3`=关注了我，`4`=赞了我的动态，`5`=收藏了我的动态，`6`=配对成功（`post_content` 存星球名），`7`=解除绑定
 - `post_content`/`comment_content`：展示用正文摘要（已截断、换行替换为空格）
 - `from_nickname`/`from_avatar`：触发者昵称/头像**实时联表 `user` 表获取**（经 Redis 缓存，TTL 10 分钟，见 `app/common/UserInfoCache.php`），`notification` 表不再存冗余快照；头像为空时返回默认头像
 
@@ -845,8 +847,96 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | 编辑 | `/admin/planet/edit` | POST | `id`/`name`/`type`/`intro`/`sort`/`status`（种子不可修改） |
 | 删除 | `/admin/planet/delete` | POST | `id` |
 | 上下线 | `/admin/planet/toggle` | POST | `id`/`status` |
+| 寻找配置 | `/admin/planet/findConfig` | POST | `id`/`enable_find`（是否开放"开始寻找"）/`find_fields`（JSON 数组，参与匹配的字段）/`force_face_auth`、`force_edu_auth`、`force_asset_auth`（是否强制对应认证才可配对） |
 
 > 建表 SQL：`sql/planet.sql`；后台菜单「运营 → 星球管理」由同一 SQL 插入（按标题动态查找父级菜单，不硬编码 id）。
+
+### 7.3 星球寻找配对（Find，`app/api/controller/Find.php`）
+
+> 「开始寻找」：用户在某星球填写「我的资料 + 目标条件」，进入寻找状态（同星球另一用户也在寻找且目标条件命中 → 立即配对）。**配对成功即成为绑定人**：自动互相关注（好友状态）、双方匹配状态结束；**绑定期间**不能取关/拉黑/解除好友，也不能在任何星球发起寻找；可手动解除绑定。各星球独立配置字段，认证为「配置 + 预留校验」（后台勾选强制认证，发起/匹配时校验 `user_auth` 表，未认证返回需认证；认证功能后续单独开发）。我的资料首填后自动复用（`user_find_profile` 按 uid 存一份，其他星球自动带出可修改）。
+
+| 接口 | 路径 | 方法 | 鉴权 | 说明 |
+|------|------|------|------|------|
+| 获取寻找配置 | `/api/find/config?planet_id=1` | GET | 业务 | 星球寻找开关、字段配置、强制认证标志、我的资料、我当前寻找/绑定状态 |
+| 发起寻找 | `/api/find/start` | POST | 业务 | 校验绑定/认证后写入资料并进入寻找，同步匹配，成功则落库配对 + 双向关注 + 通知双方 |
+| 停止寻找 | `/api/find/stop` | POST | 业务 | 手动停止当前星球的寻找状态 |
+| 寻找状态 | `/api/find/status` | GET | 业务 | 我当前寻找/绑定状态（客户端启动/回到前台兜底查询） |
+| 解除绑定 | `/api/find/unbind` | POST | 业务 | 解除与绑定人的绑定关系，通知对方 + WS 推送 |
+
+#### 7.3.1 获取寻找配置（业务）
+
+- **路径**：`GET /api/find/config?planet_id=1`
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：返回星球「开始寻找」配置与我的资料/状态。
+
+**返回 data**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| enable_find | int | 0=该星球未开放寻找 |
+| find_fields | array | 参与匹配的字段列表（JSON 数组），元素见下表 |
+| force_face_auth | int | 是否强制颜值认证 |
+| force_edu_auth | int | 是否强制学历认证 |
+| force_asset_auth | int | 是否强制资产认证 |
+| auth | object | 我的认证状态 `{ face_status, edu_status, asset_status }`（1=已认证，2=未通过，0=未认证） |
+| profile | object \| null | 我的资料（`user_find_profile`，首填后自动复用）：`gender`、`age`、`income_range`、`personality`、`city`、`face_score`、`education` |
+| my_find | object \| null | 我正在寻找：`{ id, planet_id, status, update_time }`（status 0=寻找中 1=已配对） |
+| my_bind | object \| null | 我的绑定关系：`{ id, uid, nickname, avatar, planet_id, create_time }` |
+
+**find_fields 元素**：`gender`（性别，必选）、`age`（年龄，必选）、`income_range`（月收入范围）、`personality`（性格）、`city`（是否只寻找同城）、`face_score`（颜值打分）、`education`（学历）。元素格式：`{ "key": "gender", "label": "性别", "required": 1 }`。
+
+#### 7.3.2 发起寻找（业务）
+
+- **路径**：`POST /api/find/start`
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：校验后写入/更新我的资料（自动复用），进入寻找状态并尝试匹配同星球寻找中用户。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| planet_id | int | 是 | 星球 ID |
+| params | JSON 字符串 | 是 | 我的资料 + 目标条件，如 `{"my_gender":"男","target_gender":"女","my_age":"25","target_age_min":"20","target_age_max":"30",...}` |
+
+**返回 data**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| status | int | 0=进入寻找中（暂未匹配到），1=匹配成功 |
+| matched_user | object \| null | 匹配成功的对方：`{ id, nickname, avatar }` |
+| bind | object \| null | 匹配成功后的绑定关系：`{ id, uid, nickname, avatar, planet_id, create_time }` |
+
+> 匹配规则：同星球另一 `status=0` 用户，且互相满足对方的目标条件（年龄范围 / 性别 / 收入 / 性格 / 同城 / 颜值 / 学历按星球 find_fields 配置过滤）；同一星球同一用户不能重复匹配自己；命中后双方 `user_find` 置 `status=1`，写入 `user_bind`（status=1），强制双向关注（`user_follow` 双方互插），双方各落库一条通知（type=6，`post_content`=星球名），并 `Pusher` 推送 `match_notice`。未命中则仅进入寻找状态，返回 `status=0`。
+
+#### 7.3.3 停止寻找（业务）
+
+- **路径**：`POST /api/find/stop`
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：手动停止我当前星球的寻找状态（`user_find` 置 `status=2`）。
+
+**返回 data**：空
+
+#### 7.3.4 寻找状态（业务）
+
+- **路径**：`GET /api/find/status`
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：返回我当前寻找/绑定状态（客户端启动、回到前台时兜底，处理 WS 离线期间的配对）。
+
+**返回 data**：`my_find`、`my_bind`（同 7.3.1）
+
+#### 7.3.5 解除绑定（业务）
+
+- **路径**：`POST /api/find/unbind`
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：解除与绑定人的绑定关系。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| target_uid | int | 是 | 绑定人 uid |
+
+**返回 data**：空
+
+> 解除后 `user_bind` 置 `status=0`；对方落库一条通知（type=7），`Pusher` 推送 `match_notice`；解除后双方恢复可自由取关/拉黑/发起寻找。
+
+> **相关约束**：`user/follow` 取关、`user/removeFriend`、`user/block` 在绑定关系有效期间返回错误「你们是绑定关系，请先解除绑定」；`find/start` 在已有绑定关系时禁止发起。
 
 ---
 
@@ -907,6 +997,11 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | 通知全部已读 | `/api/notification/readAll` | POST | 业务 |
 | 通知批量删除 | `/api/notification/delete` | POST | 业务 |
 | 星球列表 | `/api/planet/list` | GET | 公开 |
+| 寻找配置 | `/api/find/config` | GET | 业务 |
+| 发起寻找 | `/api/find/start` | POST | 业务 |
+| 停止寻找 | `/api/find/stop` | POST | 业务 |
+| 寻找状态 | `/api/find/status` | GET | 业务 |
+| 解除绑定 | `/api/find/unbind` | POST | 业务 |
 | 应用信息 | `/api/index/index` | GET | 业务* |
 
 

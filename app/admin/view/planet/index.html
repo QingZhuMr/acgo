@@ -149,6 +149,7 @@ layui.use(['table', 'form', 'layer'], function () {
 
         var btns = '';
         btns += '<button type="button" class="op-act-btn" data-ev="edit"><i class="fas fa-edit"></i> 编辑</button>';
+        btns += '<button type="button" class="op-act-btn primary" data-ev="find"><i class="fas fa-heart"></i> 寻人配置</button>';
         if (data.status == 1) {
             btns += '<button type="button" class="op-act-btn warn" data-ev="disable"><i class="fas fa-ban"></i> 禁用</button>';
         } else {
@@ -171,6 +172,7 @@ layui.use(['table', 'form', 'layer'], function () {
             var ev = $(this).attr('data-ev');
             layer.close(opsLayer);
             if (ev === 'edit') openForm('edit', data);
+            else if (ev === 'find') openFindConfig(data);
             else if (ev === 'enable' || ev === 'disable') toggleStatus(data, ev === 'enable' ? 1 : 0);
             else if (ev === 'del') deleteItem(data);
         });
@@ -273,6 +275,110 @@ layui.use(['table', 'form', 'layer'], function () {
             '</div>' +
         '</form>';
     }
+
+    // ===== 寻人配置弹窗 =====
+    // 所有可选字段（key=存储值，value=显示名）；性别/年龄为默认必填
+    var FIND_FIELD_OPTIONS = {
+        'gender':       '我的性别',
+        'age':          '我的年龄',
+        'income_range': '我的月收入范围',
+        'personality':  '我的性格',
+        'city':         '我的城市',
+        'face_score':   '我的颜值打分',
+        'edu_level':    '我的学历'
+    };
+
+    function buildFindFieldsHtml(selected) {
+        var out = '';
+        var keys = Object.keys(FIND_FIELD_OPTIONS);
+        for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
+            var checked = selected.indexOf(k) >= 0 ? ' checked' : '';
+            var disabled = (k === 'gender' || k === 'age') ? ' disabled' : '';
+            out += '<input type="checkbox" name="find_field" value="' + k + '" title="' + FIND_FIELD_OPTIONS[k] + '" lay-skin="primary"' + checked + disabled + '>';
+        }
+        return out;
+    }
+
+    function openFindConfig(data) {
+        var fields = [];
+        try {
+            var parsed = JSON.parse(data.find_fields || '[]');
+            if (Object.prototype.toString.call(parsed) === '[object Array]') fields = parsed;
+        } catch (e) { fields = []; }
+        if (fields.indexOf('gender') < 0) fields.push('gender');
+        if (fields.indexOf('age') < 0) fields.push('age');
+
+        layer.open({
+            type: 1,
+            title: '寻人配置 - ' + data.name,
+            area: ['520px', 'auto'],
+            content: findConfigHtml(data, fields),
+            success: function (layero) {
+                form.render();
+                form.val('findConfigForm', {
+                    enable_find: parseInt(data.enable_find, 10) === 1 ? 'on' : undefined,
+                    force_face_auth: parseInt(data.force_face_auth, 10) === 1 ? 'on' : undefined,
+                    force_edu_auth: parseInt(data.force_edu_auth, 10) === 1 ? 'on' : undefined,
+                    force_asset_auth: parseInt(data.force_asset_auth, 10) === 1 ? 'on' : undefined
+                });
+                form.render();
+            }
+        });
+    }
+
+    function findConfigHtml(data, fields) {
+        return '' +
+        '<form class="layui-form" id="findConfigForm" lay-filter="findConfigForm" style="padding:20px 25px 5px;">' +
+            '<input type="hidden" name="id" value="' + data.id + '">' +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">开启寻人</label>' +
+                '<div class="layui-input-block">' +
+                    '<input type="checkbox" name="enable_find" value="on" lay-skin="switch" lay-text="开启|关闭">' +
+                    '<div class="form-tip">开启后，该星球的客户端将展示「开始寻找」入口</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="layui-form-item">' +
+                '<label class="layui-form-label">需填写参数</label>' +
+                '<div class="layui-input-block">' +
+                    '<div style="line-height:34px;">' + buildFindFieldsHtml(fields) + '</div>' +
+                    '<div class="form-tip">勾选该星球需要填写哪些资料。性别、年龄为默认必填；勾选城市后可要求「只找同城」，勾选颜值/收入/性格/学历后匹配时对应用户也需满足对应目标条件（客户端表单会自动带出对应目标项）</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="layui-form-item" style="border-top:1px dashed #eee;padding-top:10px;">' +
+                '<label class="layui-form-label">强制认证</label>' +
+                '<div class="layui-input-block" style="line-height:38px;">' +
+                    '<input type="checkbox" name="force_face_auth" value="on" title="颜值认证" lay-skin="primary">' +
+                    '<input type="checkbox" name="force_edu_auth" value="on" title="学历认证" lay-skin="primary">' +
+                    '<input type="checkbox" name="force_asset_auth" value="on" title="资产认证" lay-skin="primary">' +
+                    '<div class="form-tip">开启后，未完成对应认证的用户不能在该星球发起/被匹配（认证功能后续版本上线，当前仅预留校验）</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="layui-form-item" style="text-align:right;padding-right:25px;">' +
+                '<button class="layui-btn" lay-submit lay-filter="submitFindConfig">保存</button>' +
+                '<button type="button" class="layui-btn layui-btn-primary" id="btnCancel">取消</button>' +
+            '</div>' +
+        '</form>';
+    }
+
+    // 保存寻人配置
+    form.on('submit(submitFindConfig)', function (data) {
+        var checked = [];
+        $('input[name="find_field"]:checked').each(function () { checked.push($(this).val()); });
+        var formData = {
+            id: data.field.id,
+            enable_find: data.field.enable_find === 'on' ? 1 : 0,
+            find_fields: JSON.stringify(checked),
+            force_face_auth: data.field.force_face_auth === 'on' ? 1 : 0,
+            force_edu_auth: data.field.force_edu_auth === 'on' ? 1 : 0,
+            force_asset_auth: data.field.force_asset_auth === 'on' ? 1 : 0
+        };
+        $.post('/planet/findConfig', formData, function (res) {
+            if (res.code === 0) { layer.closeAll(); layer.msg(res.msg, { icon: 1 }); planetTable.reload(); }
+            else { layer.msg(res.msg, { icon: 2 }); }
+        }, 'json');
+        return false;
+    });
 
     // 提交（通过隐藏域 id 判断编辑/新增）
     form.on('submit(submitPlanet)', function (data) {

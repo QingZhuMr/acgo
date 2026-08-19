@@ -77,6 +77,10 @@ class Planet extends BaseController
             $item['status_badge']     = (int) $item['status'] === 1 ? 'badge-green' : 'badge-gray';
             $item['create_time_text'] = $item['create_time']
                 ? date('Y-m-d H:i:s', (int) $item['create_time']) : '-';
+            // 寻人配置（列表展示用）
+            $item['enable_find_text'] = (int) $item['enable_find'] === 1 ? '开启' : '关闭';
+            $item['enable_find_badge'] = (int) $item['enable_find'] === 1 ? 'badge-green' : 'badge-gray';
+            $item['force_auth_text']  = $this->forceAuthText((int) ($item['force_face_auth'] ?? 0), (int) ($item['force_edu_auth'] ?? 0), (int) ($item['force_asset_auth'] ?? 0));
         }
         unset($item);
 
@@ -213,6 +217,74 @@ class Planet extends BaseController
         ]);
         $this->log('planet_toggle', '切换星球状态 id=' . $id . ' -> ' . ($status === 1 ? '启用' : '禁用'));
         return json(['code' => 0, 'msg' => '已切换']);
+    }
+
+    /**
+     * 保存星球寻人配置（业务接口）
+     * POST：id、enable_find(0/1)、find_fields(JSON 数组)、
+     *      force_face_auth/force_edu_auth/force_asset_auth(0/1)
+     *
+     * find_fields 可选值（我的资料字段）：gender/age/income_range/personality/city/face_score/edu_level
+     * 性别与年龄为默认必填项（后台可勾选，保存时强制并入）。
+     */
+    public function findConfig()
+    {
+        $id = (int) $this->request->post('id', 0);
+        if ($id <= 0) {
+            return json(['code' => 1, 'msg' => '参数错误']);
+        }
+        $row = Db::name('planet')->where('id', $id)->find();
+        if (!$row) {
+            return json(['code' => 1, 'msg' => '星球不存在']);
+        }
+
+        $enableFind = (int) $this->request->post('enable_find', 0) === 1 ? 1 : 0;
+
+        $fieldsRaw = (string) $this->request->post('find_fields', '[]');
+        $fields = json_decode($fieldsRaw, true);
+        if (!is_array($fields)) {
+            return json(['code' => 1, 'msg' => '参数格式错误']);
+        }
+        $allow = ['gender', 'age', 'income_range', 'personality', 'city', 'face_score', 'edu_level'];
+        $fields = array_values(array_unique(array_intersect($fields, $allow)));
+        // 性别/年龄 为默认必填项
+        if (!in_array('gender', $fields, true)) {
+            array_unshift($fields, 'gender');
+        }
+        if (!in_array('age', $fields, true)) {
+            $fields[] = 'age';
+        }
+
+        Db::name('planet')->where('id', $id)->update([
+            'enable_find'      => $enableFind,
+            'find_fields'      => json_encode($fields, JSON_UNESCAPED_UNICODE),
+            'force_face_auth'  => (int) $this->request->post('force_face_auth', 0) === 1 ? 1 : 0,
+            'force_edu_auth'   => (int) $this->request->post('force_edu_auth', 0) === 1 ? 1 : 0,
+            'force_asset_auth' => (int) $this->request->post('force_asset_auth', 0) === 1 ? 1 : 0,
+            'update_time'      => time(),
+        ]);
+
+        $this->log('planet_find_config', '保存星球寻人配置 id=' . $id . ' 名称=' . $row['name']
+            . ' enable_find=' . $enableFind . ' fields=' . json_encode($fields, JSON_UNESCAPED_UNICODE));
+        return json(['code' => 0, 'msg' => '保存成功']);
+    }
+
+    /**
+     * 强制认证文案（列表展示用）
+     */
+    protected function forceAuthText(int $face, int $edu, int $asset): string
+    {
+        $items = [];
+        if ($face === 1) {
+            $items[] = '颜值';
+        }
+        if ($edu === 1) {
+            $items[] = '学历';
+        }
+        if ($asset === 1) {
+            $items[] = '资产';
+        }
+        return $items ? '强制' . implode('/', $items) . '认证' : '不强制';
     }
 
     /**
