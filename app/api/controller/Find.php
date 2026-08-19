@@ -528,7 +528,9 @@ class Find extends BaseController
      * 绑定对象长期未上线：自动解除绑定并补偿熊爪（懒检查，任意接口触发时顺带处理当前用户）
      *
      * 规则：绑定对象超过 unbind_auto_days 天未上线 → 自动解除绑定，
-     *      并给"被离开方"（仍在线访问接口的一方）补偿 unbind_auto_compensation 熊爪。
+     *      并给"被离开方"（仍在线访问接口的一方）补偿：
+     *      实际星球消费金额（付费按 user_find.charge_amount；
+     *      免费次数匹配按配对星球单次积分金额）+ 后台 unbind_auto_compensation 额外补偿。
      */
     protected function autoUnbind(int $uid): void
     {
@@ -572,30 +574,34 @@ class Find extends BaseController
             ->where('status', 1)
             ->update(['status' => 0, 'unbind_time' => $now]);
 
-        // 补偿熊爪
+        // 补偿熊爪 = 实际星球消费金额 + 后台额外补偿
+        // （付费匹配按 user_find.charge_amount；免费次数匹配按配对星球单次积分金额）
+        $actualCost = $this->bindActualCost($uid, (int) $bind['planet_id']);
+        $totalComp = $actualCost + $compensation;
+
         $wallet = Db::name('wallet')->where('uid', $uid)->find();
         if ($wallet) {
             Db::name('wallet')->where('uid', $uid)
-                ->inc('balance_paw', $compensation)
+                ->inc('balance_paw', $totalComp)
                 ->update(['update_time' => $now]);
-            $paw = (int) $wallet['balance_paw'] + $compensation;
+            $paw = (int) $wallet['balance_paw'] + $totalComp;
             $cny = (float) $wallet['balance_cny'];
         } else {
             Db::name('wallet')->insert([
                 'uid'          => $uid,
-                'balance_paw'  => $compensation,
+                'balance_paw'  => $totalComp,
                 'balance_cny'  => 0,
                 'create_time'  => $now,
                 'update_time'  => $now,
             ]);
-            $paw = $compensation;
+            $paw = $totalComp;
             $cny = 0.0;
         }
         Pusher::pushWallet($uid, ['paw' => $paw, 'cny' => $cny]);
 
         // 通知 type=8（自动解除绑定）+ WS 推送
         $partner = UserInfoCache::get($partnerUid);
-        $commentContent = '补偿 ' . $compensation . ' 熊爪';
+        $commentContent = '补偿 ' . $totalComp . ' 熊爪';
         $nid = Db::name('notification')->insertGetId([
             'user_id'         => $uid,
             'from_uid'        => $partnerUid,
@@ -623,6 +629,37 @@ class Find extends BaseController
                 ],
             ]
         );
+    }
+
+    /**
+     * 该用户在某星球配对成功那次的「实际消费金额」（熊爪）：
+     * - 付费匹配（charge_type=paw）：取 user_find.charge_amount（实际扣的熊爪数）
+     * - 免费次数匹配（charge_type=free）：按配对星球单次积分金额计（星球 match_cost，未配置则全局 find_default_match_cost）
+     * - 无匹配记录或类型未知：返回 0
+     */
+    protected function bindActualCost(int $uid, int $planetId): int
+    {
+        $find = Db::name('user_find')
+            ->where('user_id', $uid)
+            ->where('planet_id', $planetId)
+            ->where('status', 1)
+            ->order('id', 'desc')
+            ->find();
+        if (!$find) {
+            return 0;
+        }
+        $type = (string) ($find['charge_type'] ?? '');
+        if ($type === 'paw') {
+            return (int) ($find['charge_amount'] ?? 0);
+        }
+        if ($type === 'free') {
+            $planet = Db::name('planet')->where('id', $planetId)->find();
+            if ($planet) {
+                return (int) $this->resolveFindCost($planet, $uid)['cost'];
+            }
+            return (int) $this->getConfigValue('find_default_match_cost', 0);
+        }
+        return 0;
     }
 
     /**

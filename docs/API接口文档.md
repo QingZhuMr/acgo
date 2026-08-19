@@ -1092,12 +1092,12 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | 配置名 | 默认值 | 说明 |
 |--------|--------|------|
 | `unbind_auto_days` | `3` | 绑定对象连续多少天未上线则自动解除绑定（1-365） |
-| `unbind_auto_compensation` | `20` | 自动解除绑定时补偿被离开方的熊爪数量（0-1000000） |
+| `unbind_auto_compensation` | `20` | 自动解除绑定时，除返还本次匹配实际消费外额外补偿被离开方的熊爪数量（0-1000000） |
 
 **自动解绑 + 补偿规则**：
 - 判定依据：绑定方（`user_bind` status=1 中任一方）最后在线时间（取 `user_device` 最大 `last_online_time`，兜底 `user.last_login_time`）早于 `time() - unbind_auto_days * 86400` 即视为长期未上线。
 - 触发方式：**懒检查**——`Find::config()`/`Find::status()` 访问时检查当前用户的绑定并解绑。（曾实现 WS 每 60 秒全表兜底扫描，因阻塞单 worker 事件循环已移除；超期绑定需双方中任一方再次访问接口时才解除）
-- 解除后：绑定置 `status=0` + `unbind_time`；给**被离开方**（仍在线/最后活跃较晚的一方）的 `wallet.balance_paw` 补偿 `unbind_auto_compensation` 熊爪，并通过 WS 推送 `wallet` 实时更新余额；落库 `notification`（type=8）并推送 `match_notice`。
+- 解除后：绑定置 `status=0` + `unbind_time`；给**被离开方**（仍在线/最后活跃较晚的一方）的 `wallet.balance_paw` 返还 **实际星球消费金额 + `unbind_auto_compensation` 额外补偿**，其中实际消费取该用户在该配对星球匹配成功那条 `user_find` 的 `charge_amount`（付费匹配实际扣的熊爪）；若为免费次数匹配（`charge_type=free`），则按配对星球单次积分金额（星球 `match_cost`，未配置用全局 `find_default_match_cost`）计；并通过 WS 推送 `wallet` 实时更新余额；落库 `notification`（type=8，`comment_content`=补偿总数）并推送 `match_notice`。
 - 幂等：解绑 `UPDATE` 带 `AND status=1`，并发场景下仅首个事务生效。
 
 ---

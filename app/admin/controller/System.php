@@ -198,7 +198,7 @@ class System extends BaseController
 
         $now = time();
         $this->setConfig('unbind_auto_days', (string) $days, '绑定对象未上线自动解除天数', $now);
-        $this->setConfig('unbind_auto_compensation', (string) $comp, '自动解除绑定补偿熊爪数量', $now);
+        $this->setConfig('unbind_auto_compensation', (string) $comp, '自动解除绑定额外补偿熊爪数量（除返还实际消费外）', $now);
 
         return json(['code' => 0, 'msg' => '保存成功']);
     }
