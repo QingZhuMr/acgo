@@ -1,4 +1,0 @@
-echo "===== 测试 yeahbear 账号连接 ====="
-mysql -uyeahbear -p'xswbtRFZDfynfkzr' -e "SELECT CURRENT_USER(); SHOW DATABASES;" 2>&1 | grep -v "Using a password"
-echo "===== 查看 yeahbear 用户权限 ====="
-mysql -uroot -p'3cef5e649f3caffb' -e "SELECT user,host FROM mysql.user WHERE user IN ('acgo','yeahbear'); SELECT * FROM information_schema.schemata WHERE schema_name IN ('acgo','yeshbear');" 2>&1 | grep -v "Using a password"

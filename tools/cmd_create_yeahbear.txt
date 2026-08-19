@@ -1,4 +1,0 @@
-echo "===== 创建 yeahbear 用户并授权 acgo 库 ====="
-mysql -uroot -p'3cef5e649f3caffb' -e "CREATE USER IF NOT EXISTS 'yeahbear'@'localhost' IDENTIFIED BY 'xswbtRFZDfynfkzr'; CREATE USER IF NOT EXISTS 'yeahbear'@'127.0.0.1' IDENTIFIED BY 'xswbtRFZDfynfkzr'; GRANT ALL PRIVILEGES ON acgo.* TO 'yeahbear'@'localhost'; GRANT ALL PRIVILEGES ON acgo.* TO 'yeahbear'@'127.0.0.1'; FLUSH PRIVILEGES;" 2>&1 | grep -v "Using a password"
-echo "===== 验证 yeahbear 连接 acgo 库 ====="
-mysql -uyeahbear -p'xswbtRFZDfynfkzr' acgo -e "SELECT COUNT(*) AS table_cnt FROM information_schema.tables WHERE table_schema='acgo';" 2>&1 | grep -v "Using a password"

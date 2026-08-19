@@ -1,3 +1,0 @@
-#!/bin/bash
-# 查看 phpMyAdmin 配置，可能包含数据库连接信息
-cat /www/server/phpmyadmin/phpmyadmin_8b8b5e0ec495f098/config.inc.php 2>/dev/null | grep -iE 'password|user|host|auth' | head -20

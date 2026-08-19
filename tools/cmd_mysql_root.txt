@@ -1,9 +1,0 @@
-#!/bin/bash
-# 用日志中找到的 root 密码连接 MySQL，检查并创建 acgo 库
-MYSQL_ROOT_PASS="3cef5e649f3caffb"
-echo "---root连接测试---"
-mysql -uroot -p"$MYSQL_ROOT_PASS" -e "SELECT VERSION();" 2>&1
-echo "---现有数据库---"
-mysql -uroot -p"$MYSQL_ROOT_PASS" -e "SHOW DATABASES;" 2>&1
-echo "---acgo用户检查---"
-mysql -uroot -p"$MYSQL_ROOT_PASS" -e "SELECT user,host FROM mysql.user WHERE user='acgo';" 2>&1

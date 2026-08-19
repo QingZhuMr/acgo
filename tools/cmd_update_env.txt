@@ -1,7 +1,0 @@
-cd /www/wwwroot/acgo
-sed -i 's/^DB_USER = .*/DB_USER = yeahbear/' .env
-sed -i 's/^DB_PASS = .*/DB_PASS = xswbtRFZDfynfkzr/' .env
-echo "===== 更新后 .env 数据库配置 ====="
-grep -E '^DB_' .env
-echo "===== 用新配置验证 PHP 连接 ====="
-php -r "\$env = parse_ini_file('.env', false, INI_SCANNER_RAW); \$m = new mysqli(\$env['DB_HOST'], \$env['DB_USER'], \$env['DB_PASS'], \$env['DB_NAME'], (int)\$env['DB_PORT']); echo \$m->connect_error ? 'CONNECT FAIL: '.\$m->connect_error : 'CONNECT OK'; echo PHP_EOL; \$m->close();"
