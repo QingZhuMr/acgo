@@ -1,0 +1,124 @@
+{extend name="layout" /}
+
+{block name="title"}赠送寻人免费次数{/block}
+
+{block name="content"}
+<div class="page-content">
+    <form class="layui-form" lay-filter="grantForm" style="max-width:520px;">
+        <div class="layui-form-item">
+            <label class="layui-form-label">账号/手机号</label>
+            <div class="layui-input-block">
+                <input type="text" name="target" id="target" placeholder="填写用户 UID 或手机号" autocomplete="off" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">星球</label>
+            <div class="layui-input-block">
+                <select name="planet_id" id="planetId" lay-filter="planetId">
+                    <option value="">请选择星球</option>
+                    {volist name="planets" id="p"}
+                    <option value="{$p.id}">{$p.name}</option>
+                    {/volist}
+                </select>
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">赠送次数</label>
+            <div class="layui-input-block">
+                <input type="number" name="count" id="count" min="1" value="1" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">管理员密码</label>
+            <div class="layui-input-block">
+                <input type="password" name="admin_password" id="adminPassword" placeholder="二次验证" autocomplete="off" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <div class="layui-input-block">
+                <button type="button" class="layui-btn page-btn" id="btnGrant" lay-submit lay-filter="grant"><i class="fas fa-gift"></i> 赠送</button>
+                <button type="button" class="layui-btn layui-btn-primary" id="btnQuery">查询余额</button>
+            </div>
+        </div>
+    </form>
+
+    <div id="balanceBox" style="max-width:520px;margin-top:8px;display:none;">
+        <div class="text-caption" style="margin-bottom:8px;">当前账号各星球免费次数余额：</div>
+        <table class="layui-table" lay-skin="line" style="margin:0;">
+            <thead>
+                <tr><th>星球</th><th>累计赠送</th><th>已用</th><th>剩余</th></tr>
+            </thead>
+            <tbody id="balanceBody"></tbody>
+        </table>
+    </div>
+</div>
+{/block}
+
+{block name="script"}
+<script>
+layui.use(['form', 'layer'], function () {
+    var form  = layui.form;
+    var layer = layui.layer;
+    var $     = layui.$;
+
+    form.render();
+
+    function queryBalance() {
+        var target = $('#target').val().trim();
+        if (target === '') { layer.msg('请先填写账号/手机号', { icon: 2 }); return; }
+        $.get('/admin/find/userFree', { target: target }, function (res) {
+            if (res.code !== 0) { layer.msg(res.msg || '查询失败', { icon: 2 }); return; }
+            var d = res.data || {};
+            var rows = d.list || [];
+            if (rows.length === 0) {
+                $('#balanceBody').html('<tr><td colspan="4" style="text-align:center;color:var(--text-faint);">暂无数据</td></tr>');
+            } else {
+                var html = '';
+                for (var i = 0; i < rows.length; i++) {
+                    var r = rows[i];
+                    html += '<tr>' +
+                        '<td>' + (r.planet_name || '') + '</td>' +
+                        '<td>' + r.free_total + '</td>' +
+                        '<td>' + r.free_used + '</td>' +
+                        '<td><b style="color:var(--primary);">' + r.free_remaining + '</b></td>' +
+                        '</tr>';
+                }
+                $('#balanceBody').html(html);
+            }
+            $('#balanceBox').show();
+        }, 'json');
+    }
+
+    // 查询余额
+    $('#btnQuery').on('click', queryBalance);
+
+    // 赠送（密码二次验证）
+    form.on('submit(grant)', function () {
+        var target = $('#target').val().trim();
+        var planetId = $('#planetId').val();
+        var count = parseInt($('#count').val(), 10);
+        var pwd = $('#adminPassword').val();
+        if (target === '') { layer.msg('请填写账号/手机号', { icon: 2 }); return false; }
+        if (!planetId) { layer.msg('请选择星球', { icon: 2 }); return false; }
+        if (!count || count < 1) { layer.msg('赠送次数需大于 0', { icon: 2 }); return false; }
+        if (pwd === '') { layer.msg('请输入管理员密码', { icon: 2 }); return false; }
+        var load = layer.load(1);
+        $.post('/admin/find/doGrant', {
+            target: target, planet_id: planetId, count: count, admin_password: pwd
+        }, function (res) {
+            layer.close(load);
+            if (res.code === 0) {
+                layer.msg(res.msg, { icon: 1 });
+                queryBalance();
+            } else {
+                layer.msg(res.msg || '操作失败', { icon: 2 });
+            }
+        }, 'json').fail(function () {
+            layer.close(load);
+            layer.msg('网络异常，请稍后重试', { icon: 2 });
+        });
+        return false;
+    });
+});
+</script>
+{/block}

@@ -54,8 +54,7 @@ class Find extends BaseController
         }
 
         // 费用与免费次数（供前端展示与发起时扣费判定复用）
-        $today = date('Y-m-d');
-        $costInfo = $this->resolveFindCost($planet, $uid, $today);
+        $costInfo = $this->resolveFindCost($planet, $uid);
 
         return json([
             'code' => 0,
@@ -75,7 +74,6 @@ class Find extends BaseController
                 // 付费 / 免费次数相关（星球寻人配对）
                 'balance_paw'      => $this->myPaw($uid),
                 'match_cost'       => $costInfo['cost'],
-                'free_match_count' => $costInfo['free_limit'],
                 'free_remaining'   => $costInfo['free_remaining'],
                 'cost_notice'      => (string) $this->getConfigValue('find_cost_notice', ''),
             ],
@@ -140,24 +138,40 @@ class Find extends BaseController
         }
 
         $now = time();
-        $today = date('Y-m-d');
-        $costInfo = $this->resolveFindCost($planet, $uid, $today);
+        $costInfo = $this->resolveFindCost($planet, $uid);
         $cost = $costInfo['cost'];
-        $freeLimit = $costInfo['free_limit'];
 
         try {
-            $result = Db::transaction(function () use ($uid, $planetId, $profile, $target, $now, $today, $cost, $freeLimit) {
-                // 免费次数判定（每用户每星球每日，跨天由 free_stat_date 重置）
-                $usedFree = (int) Db::name('user_find')
+            $result = Db::transaction(function () use ($uid, $planetId, $profile, $target, $now, $cost) {
+                // 永久免费次数判定（后台按 账号+星球 赠送，扣减 free_used；非每日重置）
+                $freeRow = Db::name('user_find_free')
                     ->where('user_id', $uid)
                     ->where('planet_id', $planetId)
-                    ->where('free_stat_date', $today)
-                    ->sum('free_used_count');
-                $isFree = ($freeLimit > 0 && $usedFree < $freeLimit);
-                $freeUsedThis = $isFree ? 1 : 0;
+                    ->find();
+                $freeRemaining = $freeRow
+                    ? max(0, (int) $freeRow['free_total'] - (int) $freeRow['free_used'])
+                    : 0;
+                $isFree = $freeRemaining > 0;
 
-                // 付费：超出免费次数且单次费用 > 0 → 扣熊爪
-                if (!$isFree && $cost > 0) {
+                if ($isFree) {
+                    // 消耗一次永久免费次数
+                    if ($freeRow) {
+                        Db::name('user_find_free')
+                            ->where('id', (int) $freeRow['id'])
+                            ->inc('free_used', 1)
+                            ->update(['update_time' => $now]);
+                    } else {
+                        Db::name('user_find_free')->insert([
+                            'user_id'     => $uid,
+                            'planet_id'   => $planetId,
+                            'free_total'  => 0,
+                            'free_used'   => 1,
+                            'create_time' => $now,
+                            'update_time' => $now,
+                        ]);
+                    }
+                } elseif ($cost > 0) {
+                    // 付费：单次费用 > 0 → 扣熊爪
                     $aff = Db::name('wallet')
                         ->where('uid', $uid)
                         ->where('balance_paw', '>=', $cost)
@@ -187,14 +201,12 @@ class Find extends BaseController
 
                 // 插入新寻找记录（携带免费次数记录字段）
                 $findId = Db::name('user_find')->insertGetId([
-                    'user_id'         => $uid,
-                    'planet_id'       => $planetId,
-                    'target'          => json_encode($target, JSON_UNESCAPED_UNICODE),
-                    'status'          => 0,
-                    'matched_uid'     => 0,
-                    'create_time'     => $now,
-                    'free_used_count' => $freeUsedThis,
-                    'free_stat_date'  => $today,
+                    'user_id'     => $uid,
+                    'planet_id'   => $planetId,
+                    'target'      => json_encode($target, JSON_UNESCAPED_UNICODE),
+                    'status'      => 0,
+                    'matched_uid' => 0,
+                    'create_time' => $now,
                 ]);
                 return ['find_id' => $findId, 'is_free' => $isFree, 'cost' => $cost];
             });
@@ -400,31 +412,28 @@ class Find extends BaseController
     }
 
     /**
-     * 解析某星球发起一次匹配的费用与免费次数规则
-     * - 星球未配置付费相关（match_cost 与 free_match_count 同时为 0）→ 回落全局 config 默认
-     * - 星球已配置：match_cost>0 用星球费用；free_match_count>0 用星球每日免费次数（0 表示无免费）
+     * 解析某星球发起一次匹配的费用与永久免费次数
+     * - 单次费用 match_cost：星球配置 > 0 用星球值，否则回落全局 config 默认
+     * - 免费次数：后台按「账号+星球」赠送的【永久】免费次数（user_find_free），非每日重置
      */
-    protected function resolveFindCost(array $planet, int $uid, string $today): array
+    protected function resolveFindCost(array $planet, int $uid): array
     {
         $planetCost = (int) ($planet['match_cost'] ?? 0);
-        $planetFree = (int) ($planet['free_match_count'] ?? 0);
-        if ($planetCost === 0 && $planetFree === 0) {
-            $cost = (int) $this->getConfigValue('find_default_match_cost', 0);
-            $freeLimit = (int) $this->getConfigValue('find_default_free_match_count', 0);
-        } else {
-            $cost = $planetCost;
-            $freeLimit = $planetFree;
-        }
-        $usedFree = (int) Db::name('user_find')
+        $cost = $planetCost > 0
+            ? $planetCost
+            : (int) $this->getConfigValue('find_default_match_cost', 0);
+
+        $freeRow = Db::name('user_find_free')
             ->where('user_id', $uid)
             ->where('planet_id', (int) $planet['id'])
-            ->where('free_stat_date', $today)
-            ->sum('free_used_count');
+            ->find();
+        $freeRemaining = $freeRow
+            ? max(0, (int) $freeRow['free_total'] - (int) $freeRow['free_used'])
+            : 0;
+
         return [
             'cost'           => $cost,
-            'free_limit'     => $freeLimit,
-            'used_free'      => $usedFree,
-            'free_remaining' => max(0, $freeLimit - $usedFree),
+            'free_remaining' => $freeRemaining,
         ];
     }
 

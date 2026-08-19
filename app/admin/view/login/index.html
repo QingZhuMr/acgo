@@ -147,6 +147,13 @@
 {/block}
 
 {block name="content"}
+<!-- 掉线重定向：若登录页被嵌入 iframe（如后台内容区 session 过期后跳转进来），
+     强制顶层窗口整页跳转到登录页，避免在 iframe 内容区弹出登录框 -->
+<script>
+    if (window.self !== window.top) {
+        top.location.href = window.location.href;
+    }
+</script>
 <div class="login-box">
     <div class="logo">
         <h1>{$app_name}管理面板</h1>
