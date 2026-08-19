@@ -792,6 +792,61 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 
 ---
 
+## 11. 星球（Planet）
+
+> 星球养成系统：一人一颗星球（`planet` 表，uid 唯一）。初始星球处于「岩浆活动期」（stage=magma），表面以岩浆材质为主、水（海洋）占比由水资源决定。初始资源由 seed 确定性计算（LCG，前后端算法一致），总资源恒为 100（平衡），配比随机（水/金属/岩石各异），氧气恒为 0。
+
+### 11.1 我的星球（业务）
+
+- **路径**：`GET /api/planet/my`
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：查询当前用户星球；未认领时 `data=null`
+
+**返回 data 结构**：
+
+```json
+{
+  "id": 1, "uid": 5, "name": "荒芜星", "seed": 123456,
+  "water": 46, "metal": 31, "oxygen": 0, "rock": 23,
+  "stage": "magma", "status": 1, "create_time": 1699999999,
+  "resources": { "water": 46, "metal": 31, "oxygen": 0, "rock": 23 }
+}
+```
+
+### 11.2 认领候选星球（业务）
+
+- **路径**：`GET /api/planet/candidates`
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：下发 3 个候选星球（seed + 初始资源）。**seed 与资源均由服务端生成下发**，客户端只做展示与选择，无法篡改资源。
+- **规则**：已拥有星球时返回 `data=null`。
+
+**返回 data 结构**：
+
+```json
+[
+  { "seed": 123456, "resources": { "water": 46, "metal": 31, "rock": 23, "oxygen": 0 } },
+  { "seed": 654321, "resources": { "water": 58, "metal": 24, "rock": 18, "oxygen": 0 } },
+  { "seed": 998877, "resources": { "water": 41, "metal": 39, "rock": 20, "oxygen": 0 } }
+]
+```
+
+### 11.3 认领星球（业务）
+
+- **路径**：`POST /api/planet/claim`
+- **鉴权**：业务（签名 + 设备密钥）
+- **功能**：认领一颗星球（seed 必须是 11.2 候选接口下发的，服务端按 seed 确定性计算初始资源落库），并命名。
+- **规则**：
+  - 一人一颗：已拥有星球时拒绝重复认领（`你已拥有星球，无法重复认领`）
+  - 名字：非空、≤20 字、敏感词校验（`ContentCheck`，命中返回 `名字含敏感词，请重新命名`）
+  - seed：1 ~ 0x7fffffff，非法返回 `星球种子非法`
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| seed | int | 是 | 星球种子（由 11.2 候选接口下发） |
+| name | string | 是 | 星球名字，≤20 字，敏感词校验 |
+
+**返回**：`code=0` 成功，`data` 为星球记录（含 resources，同 11.1）。
+
 ## 7. 应用标识（Index）
 
 ### 7.1 应用信息
@@ -849,6 +904,9 @@ X-AI-Token: <AI_TOKEN>   // 对应 .env 的 AI_TOKEN，生产可随时更换
 | 通知全部已读 | `/api/notification/readAll` | POST | 业务 |
 | 通知批量删除 | `/api/notification/delete` | POST | 业务 |
 | 应用信息 | `/api/index/index` | GET | 业务* |
+| 我的星球 | `/api/planet/my` | GET | 业务 |
+| 认领候选星球 | `/api/planet/candidates` | GET | 业务 |
+| 认领星球 | `/api/planet/claim` | POST | 业务 |
 
 ---
 
